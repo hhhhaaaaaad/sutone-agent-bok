@@ -69,6 +69,7 @@ CREATE TABLE `article_meta` (
   `word_count` int(11) NOT NULL DEFAULT '0' COMMENT '文章字数',
   `view_count` int(11) NOT NULL DEFAULT '0' COMMENT '阅读量',
   `like_count` int(11) NOT NULL DEFAULT '0' COMMENT '点赞数(预留)',
+  `favorite_count` int(11) NOT NULL DEFAULT '0' COMMENT '收藏数(预留)',
   `tags` varchar(255) DEFAULT NULL COMMENT 'JSON格式标签列表',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -96,7 +97,7 @@ CREATE TABLE `ai_task` (
 
 INSERT INTO `user` (`id`, `username`, `password_hash`, `nickname`, `avatar_url`)
 VALUES
-  (1, 'admin', 'admin', '苏东号', NULL)
+  (1, 'admin', 'admin', '苏东昊', NULL)
 ON DUPLICATE KEY UPDATE
   `password_hash` = VALUES(`password_hash`),
   `nickname` = VALUES(`nickname`),
