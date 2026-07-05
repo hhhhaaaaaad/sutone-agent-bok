@@ -1732,7 +1732,12 @@ SSE 在浏览器环境里天然可能遇到：
 | `sutone-agent-bok-domain` | 领域模型与领域服务 | 新增 `content` 域与 `agent.ai_writing` 子模块骨架 |
 | `sutone-agent-bok-infrastructure` | 仓储实现、DAO、外部适配 | 新增内容表 DAO、Repository 实现、SSE 适配支撑 |
 
-### 7.2 API 模块骨架清单（`sutone-agent-bok-api`）
+### 7.2 API 模块逐文件骨架设计（`sutone-agent-bok-api`）
+
+> **设计约束**：
+> 1. 现有 API 模块已经有 `IAgentService`、`Response<T>` 这套风格，新接口保持同一套返回结构。
+> 2. 内容平台新增接口采用“一个业务面向一个 Service 接口”的方式，避免把全部方法继续堆进 `IAgentService`。
+> 3. 流式 SSE 接口返回 `ResponseBodyEmitter`，可以像当前 `IAgentService#chatStream` 一样，由 Trigger 层直接实现。
 
 建议新增包结构：
 
@@ -1742,116 +1747,60 @@ cn.sutone.ai.api
 ├── IAiWritingService.java
 ├── IArticleService.java
 └── dto
+    ├── PageResponseDTO.java
     ├── draft
     ├── aiwriting
     └── article
 ```
 
-#### 1. 草稿接口
+#### 7.2.1 接口文件
 
-建议新增：
+##### 1. `cn.sutone.ai.api.IContentDraftService`
 
-```text
-cn.sutone.ai.api.IContentDraftService
-```
-
-建议定义的方法：
+- **定位**：定义草稿相关的同步 HTTP 接口契约。
+- **建议方法**：
 
 ```java
 Response<SaveDraftResponseDTO> saveDraft(SaveDraftRequestDTO requestDTO);
 Response<DraftDetailResponseDTO> queryDraftDetail(Long draftId);
-Response<PageResponse<DraftPageItemResponseDTO>> queryDraftPage(Integer pageNo, Integer pageSize);
+Response<PageResponseDTO<DraftPageItemResponseDTO>> queryDraftPage(Integer pageNo, Integer pageSize);
 Response<DiscardDraftResponseDTO> discardDraft(Long draftId);
 ```
 
-#### 2. AI 写作接口
+- **说明**：
+  - 仅保留“接口定义”，不写业务逻辑。
+  - 方法名与第 3 节 API 契约保持一致，便于 Trigger 层 `implements`。
 
-建议新增：
+##### 2. `cn.sutone.ai.api.IAiWritingService`
 
-```text
-cn.sutone.ai.api.IAiWritingService
-```
-
-建议定义的方法：
+- **定位**：定义 AI 写作任务的同步查询/提交接口。
+- **建议方法**：
 
 ```java
 Response<SubmitAiTaskResponseDTO> submitTask(SubmitAiTaskRequestDTO requestDTO);
 Response<AiTaskDetailResponseDTO> queryTaskDetail(Long taskId);
 ```
 
-流式接口由于返回类型特殊，可以由 Trigger 层直接实现，不强制写入 API 接口模块。
+- **说明**：
+  - `stream` 不强制进入该接口，因为它返回 `ResponseBodyEmitter`，且更贴近 Controller 的 HTTP 输出语义。
 
-#### 3. 文章接口
+##### 3. `cn.sutone.ai.api.IArticleService`
 
-建议新增：
-
-```text
-cn.sutone.ai.api.IArticleService
-```
-
-建议定义的方法：
+- **定位**：定义文章发布与查询接口。
+- **建议方法**：
 
 ```java
 Response<PublishArticleResponseDTO> publishArticle(PublishArticleRequestDTO requestDTO);
-Response<PageResponse<ArticlePageItemResponseDTO>> queryArticlePage(Integer pageNo, Integer pageSize);
+Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(Integer pageNo, Integer pageSize);
 Response<ArticleDetailResponseDTO> queryArticleDetail(Long articleId);
 ```
 
-### 7.3 API DTO 骨架清单
+#### 7.2.2 DTO 文件
 
-建议在 `sutone-agent-bok-api/src/main/java/cn/sutone/ai/api/dto` 下新增三个子包：
+##### 1. `cn.sutone.ai.api.dto.PageResponseDTO<T>`
 
-```text
-dto
-├── draft
-├── aiwriting
-└── article
-```
-
-#### draft 包
-
-建议新增：
-
-```text
-SaveDraftRequestDTO.java
-SaveDraftResponseDTO.java
-DraftDetailResponseDTO.java
-DraftPageItemResponseDTO.java
-DiscardDraftResponseDTO.java
-```
-
-#### aiwriting 包
-
-建议新增：
-
-```text
-SubmitAiTaskRequestDTO.java
-SubmitAiTaskResponseDTO.java
-AiTaskDetailResponseDTO.java
-AiWritingStreamEventDTO.java
-AiWritingChunkDTO.java
-```
-
-#### article 包
-
-建议新增：
-
-```text
-PublishArticleRequestDTO.java
-PublishArticleResponseDTO.java
-ArticlePageItemResponseDTO.java
-ArticleDetailResponseDTO.java
-```
-
-#### 通用分页 DTO
-
-当前 API 模块里还没有分页返回对象，建议补一个：
-
-```text
-cn.sutone.ai.api.dto.PageResponseDTO<T>
-```
-
-字段建议：
+- **定位**：统一分页响应对象，避免每个分页接口重复造结构。
+- **建议字段**：
 
 ```java
 private Integer total;
@@ -1860,7 +1809,218 @@ private Integer pageSize;
 private List<T> list;
 ```
 
-### 7.4 Trigger 层 Controller 骨架清单（`sutone-agent-bok-trigger`）
+- **说明**：
+  - 当前文档里所有分页接口都建议统一返回这个对象。
+  - 命名上建议固定为 `PageResponseDTO`，避免和通用 `Response<T>` 混淆。
+
+##### 2. `cn.sutone.ai.api.dto.draft.SaveDraftRequestDTO`
+
+- **定位**：草稿保存/自动保存请求体。
+- **建议字段**：
+
+```java
+private Long draftId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+```
+
+- **设计说明**：
+  - `draftId` 为空表示新建，非空表示更新。
+  - 一期先不把标签、分类塞入草稿保存请求，先保留最小闭环。
+
+##### 3. `cn.sutone.ai.api.dto.draft.SaveDraftResponseDTO`
+
+- **定位**：保存草稿后的回传对象。
+- **建议字段**：
+
+```java
+private Long draftId;
+private Integer status;
+private String statusDesc;
+private String lastUpdateTime;
+```
+
+##### 4. `cn.sutone.ai.api.dto.draft.DraftDetailResponseDTO`
+
+- **定位**：草稿详情页初始化数据。
+- **建议字段**：
+
+```java
+private Long draftId;
+private Long userId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private Integer status;
+private String statusDesc;
+private String createTime;
+private String updateTime;
+```
+
+##### 5. `cn.sutone.ai.api.dto.draft.DraftPageItemResponseDTO`
+
+- **定位**：草稿列表项。
+- **建议字段**：
+
+```java
+private Long draftId;
+private String title;
+private String summary;
+private Integer status;
+private String statusDesc;
+private String coverUrl;
+private String updateTime;
+```
+
+##### 6. `cn.sutone.ai.api.dto.draft.DiscardDraftResponseDTO`
+
+- **定位**：废弃草稿后的状态回执。
+- **建议字段**：
+
+```java
+private Long draftId;
+private Integer status;
+private String statusDesc;
+```
+
+##### 7. `cn.sutone.ai.api.dto.aiwriting.SubmitAiTaskRequestDTO`
+
+- **定位**：提交 AI 写作任务。
+- **建议字段**：
+
+```java
+private Long draftId;
+private String taskType;
+private Map<String, Object> promptParams;
+```
+
+- **设计说明**：
+  - `taskType` 在 API 层先用字符串，进入 Domain 层再映射为 `AiWritingTaskTypeEnum`。
+  - `promptParams` 保持开放，后续扩任务类型时不必频繁改接口。
+
+##### 8. `cn.sutone.ai.api.dto.aiwriting.SubmitAiTaskResponseDTO`
+
+- **定位**：提交任务后的确认对象。
+- **建议字段**：
+
+```java
+private Long taskId;
+private Long draftId;
+private String taskType;
+private Integer status;
+private String statusDesc;
+```
+
+##### 9. `cn.sutone.ai.api.dto.aiwriting.AiTaskDetailResponseDTO`
+
+- **定位**：任务状态查询返回。
+- **建议字段**：
+
+```java
+private Long taskId;
+private Long draftId;
+private String taskType;
+private Integer status;
+private String statusDesc;
+private String responseContent;
+private String errorMsg;
+private String createTime;
+private String updateTime;
+```
+
+##### 10. `cn.sutone.ai.api.dto.aiwriting.AiWritingStreamEventDTO`
+
+- **定位**：SSE 事件最外层结构，和第 6 节事件协议保持一致。
+- **建议字段**：
+
+```java
+private String phase;
+private AiWritingChunkDTO chunk;
+```
+
+##### 11. `cn.sutone.ai.api.dto.aiwriting.AiWritingChunkDTO`
+
+- **定位**：SSE 事件体。
+- **建议字段**：
+
+```java
+private String type;
+private String content;
+private String raw;
+```
+
+- **设计说明**：
+  - `content` 用于 `status/token/error/done`。
+  - `raw` 预留给后续结构化输出，避免未来为了 drawio/ppt 风格事件再重做一版 DTO。
+
+##### 12. `cn.sutone.ai.api.dto.article.PublishArticleRequestDTO`
+
+- **定位**：发布文章请求体。
+- **建议字段**：
+
+```java
+private Long draftId;
+private List<String> tags;
+```
+
+##### 13. `cn.sutone.ai.api.dto.article.PublishArticleResponseDTO`
+
+- **定位**：发布成功后的跳转信息。
+- **建议字段**：
+
+```java
+private Long articleId;
+private Long draftId;
+private String articleUrl;
+private String publishTime;
+```
+
+##### 14. `cn.sutone.ai.api.dto.article.ArticlePageItemResponseDTO`
+
+- **定位**：文章列表项。
+- **建议字段**：
+
+```java
+private Long articleId;
+private Long authorId;
+private String authorName;
+private String avatarUrl;
+private String title;
+private String summary;
+private String coverUrl;
+private String publishTime;
+private Integer viewCount;
+private List<String> tags;
+```
+
+##### 15. `cn.sutone.ai.api.dto.article.ArticleDetailResponseDTO`
+
+- **定位**：文章详情页数据。
+- **建议字段**：
+
+```java
+private Long articleId;
+private Long authorId;
+private String authorName;
+private String avatarUrl;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private List<String> tags;
+private Integer viewCount;
+private Integer likeCount;
+private Integer favoriteCount;
+private String publishTime;
+```
+
+### 7.3 Trigger 层逐文件骨架设计（`sutone-agent-bok-trigger`）
+
+> **与现有工程的衔接原则**：
+> 当前 Trigger 层已有 `AgentServiceController implements IAgentService` 这种写法，新增内容平台 Controller 保持同样风格，便于统一理解和后续重构。
 
 建议新增包结构：
 
@@ -1871,40 +2031,88 @@ cn.sutone.ai.trigger.http
 └── ArticleController.java
 ```
 
-#### 1. `ContentDraftController`
+#### 7.3.1 `cn.sutone.ai.trigger.http.ContentDraftController`
 
-负责接口：
+- **定位**：草稿 HTTP 入口，负责参数接收、异常翻译、DTO 装配。
+- **建议实现接口**：`IContentDraftService`
+- **建议注入**：
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `POST` | `/api/v1/drafts/save` | 保存/更新草稿 |
-| `GET` | `/api/v1/drafts/{draftId}` | 查询草稿详情 |
-| `GET` | `/api/v1/drafts/page` | 查询草稿分页 |
-| `POST` | `/api/v1/drafts/{draftId}/discard` | 废弃草稿 |
+```java
+private DraftDomainService draftDomainService;
+```
 
-#### 2. `AiWritingController`
+- **建议方法**：
+  - `saveDraft(@RequestBody SaveDraftRequestDTO requestDTO)`
+  - `queryDraftDetail(@PathVariable Long draftId)`
+  - `queryDraftPage(@RequestParam Integer pageNo, @RequestParam Integer pageSize)`
+  - `discardDraft(@PathVariable Long draftId)`
 
-负责接口：
+- **Controller 内职责边界**：
+  - 做基础日志记录。
+  - 调用 Domain Service。
+  - 将领域对象转换为 Response DTO。
+  - 捕获 `AppException` / 通用异常并返回 `Response<T>`。
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `POST` | `/api/v1/ai-writing/task/submit` | 提交 AI 任务 |
-| `GET` | `/api/v1/ai-writing/task/{taskId}` | 查询任务详情 |
-| `GET` | `/api/v1/ai-writing/task/stream` | SSE 流式返回 |
+- **不要放进来的逻辑**：
+  - 草稿状态机判断。
+  - 发布规则或 AI 调用逻辑。
+  - DAO 直接访问。
 
-#### 3. `ArticleController`
+#### 7.3.2 `cn.sutone.ai.trigger.http.AiWritingController`
 
-负责接口：
+- **定位**：AI 写作任务入口与流式输出入口。
+- **建议实现接口**：`IAiWritingService`
+- **建议注入**：
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `POST` | `/api/v1/articles/publish` | 发布文章 |
-| `GET` | `/api/v1/articles/page` | 查询文章分页 |
-| `GET` | `/api/v1/articles/{articleId}` | 查询文章详情 |
+```java
+private AiWritingDomainService aiWritingDomainService;
+private AiTaskDomainService aiTaskDomainService;
+private StreamGenerationDomainService streamGenerationDomainService;
+```
 
-### 7.5 Domain 层骨架清单（`sutone-agent-bok-domain`）
+- **建议方法**：
+  - `submitTask(@RequestBody SubmitAiTaskRequestDTO requestDTO)`
+  - `queryTaskDetail(@PathVariable Long taskId)`
+  - `stream(@RequestParam Long taskId)`
 
-结合前文确定的双域结构，本期建议新增如下包：
+- **SSE 接口职责**：
+  - 创建 `ResponseBodyEmitter` 或 `SseEmitter`。
+  - 订阅底层生成事件。
+  - 通过 `StreamGenerationDomainService` 转成第 6 节定义的统一事件结构。
+  - 处理完成、超时、连接断开。
+
+- **设计重点**：
+  - Controller 只负责 HTTP 与连接生命周期。
+  - “如何从任务恢复上下文”“如何把原始 token 变成平台事件”应放到 Domain Service。
+
+#### 7.3.3 `cn.sutone.ai.trigger.http.ArticleController`
+
+- **定位**：文章发布与查询入口。
+- **建议实现接口**：`IArticleService`
+- **建议注入**：
+
+```java
+private PublishDomainService publishDomainService;
+private ArticleDomainService articleDomainService;
+```
+
+- **建议方法**：
+  - `publishArticle(@RequestBody PublishArticleRequestDTO requestDTO)`
+  - `queryArticlePage(@RequestParam Integer pageNo, @RequestParam Integer pageSize)`
+  - `queryArticleDetail(@PathVariable Long articleId)`
+
+- **说明**：
+  - `publishArticle` 是跨 `draft -> article` 状态流转的入口，但仍然由 `content` 域内部完成。
+  - Controller 不直接操作 `ArticleRepository`。
+
+### 7.4 Domain 层逐文件骨架设计（`sutone-agent-bok-domain`）
+
+> **落地原则**：
+> 1. `agent.armory` 保持现有结构，不做大迁移。
+> 2. 当前仓库里已有 `domain.business` 占位结构，本期新增 `domain.content` 即可，不需要先做大规模包重命名。
+> 3. `agent.ai_writing` 优先作为 `agent.service` 下的新子模块落地，逐步替代现有 `chat` 语义。
+
+建议新增包结构：
 
 ```text
 cn.sutone.ai.domain
@@ -1914,6 +2122,7 @@ cn.sutone.ai.domain
 │   │   └── valobj
 │   ├── repository
 │   └── service
+│       ├── command
 │       ├── draft
 │       ├── article
 │       └── publish
@@ -1923,132 +2132,748 @@ cn.sutone.ai.domain
     │   └── valobj
     ├── repository
     └── service
-        ├── armory
         └── ai_writing
 ```
 
-#### 1. `content` 域建议新增的实体
+#### 7.4.1 `content` 域实体与值对象
 
-```text
-DraftEntity.java
-ArticleEntity.java
-ArticleMetaEntity.java
+##### 1. `cn.sutone.ai.domain.content.model.entity.DraftEntity`
+
+- **定位**：草稿聚合根。
+- **建议字段**：
+
+```java
+private Long draftId;
+private Long userId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private DraftStatusEnum status;
+private Date createTime;
+private Date updateTime;
 ```
 
-#### 2. `content` 域建议新增的值对象 / 枚举
+- **建议行为**：
+  - `initNewDraft(...)`
+  - `updateContent(...)`
+  - `discard()`
+  - `markPublished()`
+  - `checkEditable()`
 
-```text
-DraftStatusEnum.java
-ArticleStatusEnum.java
+##### 2. `cn.sutone.ai.domain.content.model.entity.ArticleEntity`
+
+- **定位**：文章聚合根。
+- **建议字段**：
+
+```java
+private Long articleId;
+private Long draftId;
+private Long authorId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private ArticleStatusEnum status;
+private Date publishTime;
+private ArticleMetaEntity meta;
 ```
 
-#### 3. `content` 域建议新增的仓储接口
+- **建议行为**：
+  - `publishFromDraft(DraftEntity draft, List<String> tags)`
+  - `offline()`
+  - `increaseViewCount()`
 
-```text
-IDraftRepository.java
-IArticleRepository.java
+##### 3. `cn.sutone.ai.domain.content.model.entity.ArticleMetaEntity`
+
+- **定位**：文章统计与展示元数据。
+- **建议字段**：
+
+```java
+private Long articleId;
+private Integer viewCount;
+private Integer likeCount;
+private Integer favoriteCount;
+private List<String> tags;
 ```
 
-#### 4. `content` 域建议新增的服务
+##### 4. `cn.sutone.ai.domain.content.model.valobj.DraftStatusEnum`
 
-```text
-draft/DraftDomainService.java
-article/ArticleDomainService.java
-publish/PublishDomainService.java
+- **建议枚举值**：
+
+```java
+EDITING,
+PUBLISHED,
+DISCARDED
 ```
 
-职责建议：
+- **说明**：数据库中可以继续存 `int`，枚举只用于领域语义表达。
 
-| 类名 | 职责 |
-| --- | --- |
-| `DraftDomainService` | 保存草稿、查询草稿、校验草稿状态 |
-| `ArticleDomainService` | 查询文章列表、文章详情、阅读量处理 |
-| `PublishDomainService` | 执行 `Draft -> Article` 发布转换 |
+##### 5. `cn.sutone.ai.domain.content.model.valobj.ArticleStatusEnum`
 
-#### 5. `agent.ai_writing` 建议新增的实体 / 值对象
+- **建议枚举值**：
 
-```text
-AiTaskEntity.java
-PromptContextEntity.java
-AiTaskStatusEnum.java
-AiWritingTaskTypeEnum.java
+```java
+PUBLISHED,
+OFFLINE
 ```
 
-#### 6. `agent.ai_writing` 建议新增的仓储接口
+#### 7.4.2 `content` 域仓储接口
 
-```text
-IAiTaskRepository.java
+##### 1. `cn.sutone.ai.domain.content.repository.IDraftRepository`
+
+- **定位**：草稿仓储抽象。
+- **建议方法**：
+
+```java
+Long save(DraftEntity draftEntity);
+void update(DraftEntity draftEntity);
+DraftEntity queryById(Long draftId);
+List<DraftEntity> queryPage(Long userId, Integer pageNo, Integer pageSize);
+Integer countByUserId(Long userId);
 ```
 
-#### 7. `agent.ai_writing` 建议新增的服务
+##### 2. `cn.sutone.ai.domain.content.repository.IArticleRepository`
 
-```text
-AiWritingDomainService.java
-AiTaskDomainService.java
-StreamGenerationDomainService.java
+- **定位**：文章与文章元信息仓储抽象。
+- **建议方法**：
+
+```java
+Long saveArticle(ArticleEntity articleEntity);
+ArticleEntity queryArticleById(Long articleId);
+List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
+Integer countArticlePage();
+void increaseViewCount(Long articleId);
 ```
 
-职责建议：
+#### 7.4.3 `content` 域服务
 
-| 类名 | 职责 |
-| --- | --- |
-| `AiWritingDomainService` | 组织写作场景能力，如生成大纲、正文续写、润色 |
-| `AiTaskDomainService` | 创建任务、更新任务状态、保存结果 |
-| `StreamGenerationDomainService` | 将底层生成事件包装为平台统一 SSE 事件 |
+##### 1. `cn.sutone.ai.domain.content.service.command.SaveDraftCommand`
 
-### 7.6 Infrastructure 层骨架清单（`sutone-agent-bok-infrastructure`）
+- **定位**：草稿保存场景命令对象。
+- **建议字段**：
 
-建议新增三类内容：
-
-#### 1. DAO / PO
-
-```text
-dao
-├── IDraftDao.java
-├── IArticleDao.java
-├── IArticleMetaDao.java
-├── IAiTaskDao.java
-└── po
-    ├── DraftPO.java
-    ├── ArticlePO.java
-    ├── ArticleMetaPO.java
-    └── AiTaskPO.java
+```java
+private Long draftId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
 ```
 
-#### 2. Repository 实现
+- **说明**：
+  - 这是 Trigger DTO 进入 Domain 后的第一层转换对象。
+  - 保留它的意义，是避免领域服务直接依赖 API DTO。
 
-```text
-adapter/repository
-├── DraftRepository.java
-├── ArticleRepository.java
-└── AiTaskRepository.java
+##### 2. `cn.sutone.ai.domain.content.service.draft.DraftDomainService`
+
+- **定位**：草稿生命周期服务。
+- **建议依赖**：
+
+```java
+private IDraftRepository draftRepository;
 ```
 
-#### 3. 外部能力适配
+- **建议方法**：
 
-当前 `agent` 域已有底层 AI 执行能力，一期可以先不单独抽更多 Port，只需在基础设施层补齐：
-- MyBatis Mapper / DAO
-- SSE 输出辅助类（如需要）
-- 后续扩展 Redis 缓存、任务恢复能力时，再增加缓存适配
+```java
+DraftEntity saveDraft(Long userId, SaveDraftCommand command);
+DraftEntity queryDraftDetail(Long draftId, Long userId);
+List<DraftEntity> queryDraftPage(Long userId, Integer pageNo, Integer pageSize);
+DraftEntity discardDraft(Long draftId, Long userId);
+```
+
+- **核心规则**：
+  - 用户只能修改自己的草稿。
+  - 已发布/已废弃草稿不可再编辑。
+  - 新建草稿时允许标题为空，但发布前必须补齐。
+
+##### 3. `cn.sutone.ai.domain.content.service.article.ArticleDomainService`
+
+- **定位**：文章查询与简单统计服务。
+- **建议依赖**：
+
+```java
+private IArticleRepository articleRepository;
+```
+
+- **建议方法**：
+
+```java
+ArticleEntity queryArticleDetail(Long articleId);
+List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
+void increaseViewCount(Long articleId);
+```
+
+##### 4. `cn.sutone.ai.domain.content.service.publish.PublishDomainService`
+
+- **定位**：执行 `Draft -> Article` 发布转换。
+- **建议依赖**：
+
+```java
+private IDraftRepository draftRepository;
+private IArticleRepository articleRepository;
+```
+
+- **建议方法**：
+
+```java
+ArticleEntity publish(Long userId, Long draftId, List<String> tags);
+```
+
+- **核心规则**：
+  - 发布前校验标题、正文非空。
+  - 只有“编辑中”草稿可发布。
+  - 发布成功后同步回写草稿状态。
+
+#### 7.4.4 `agent.ai_writing` 子模块
+
+##### 1. `cn.sutone.ai.domain.agent.model.entity.AiTaskEntity`
+
+- **定位**：AI 任务聚合根。
+- **建议字段**：
+
+```java
+private Long taskId;
+private Long draftId;
+private Long userId;
+private AiWritingTaskTypeEnum taskType;
+private AiTaskStatusEnum status;
+private String requestPayload;
+private String responseContent;
+private String errorMsg;
+private Date createTime;
+private Date updateTime;
+```
+
+- **建议行为**：
+  - `markPending()`
+  - `markRunning()`
+  - `markSuccess(String responseContent)`
+  - `markFailed(String errorMsg)`
+
+##### 2. `cn.sutone.ai.domain.agent.model.entity.PromptContextEntity`
+
+- **定位**：一次写作调用所需的上下文快照。
+- **建议字段**：
+
+```java
+private Long draftId;
+private String title;
+private String contentMd;
+private Map<String, Object> promptParams;
+```
+
+##### 3. `cn.sutone.ai.domain.agent.model.valobj.AiTaskStatusEnum`
+
+- **建议枚举值**：
+
+```java
+PENDING,
+RUNNING,
+SUCCESS,
+FAILED
+```
+
+##### 4. `cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeEnum`
+
+- **建议枚举值**：
+
+```java
+GENERATE_OUTLINE,
+GENERATE_BODY,
+POLISH_TEXT,
+SUMMARIZE
+```
+
+##### 5. `cn.sutone.ai.domain.agent.repository.IAiTaskRepository`
+
+- **定位**：AI 任务仓储抽象。
+- **建议方法**：
+
+```java
+Long save(AiTaskEntity aiTaskEntity);
+void update(AiTaskEntity aiTaskEntity);
+AiTaskEntity queryById(Long taskId);
+```
+
+##### 6. `cn.sutone.ai.domain.agent.service.ai_writing.AiWritingDomainService`
+
+- **定位**：面向写作语义的 AI 编排服务。
+- **建议依赖**：
+
+```java
+private IArmoryService armoryService;
+private IAiTaskRepository aiTaskRepository;
+private IDraftRepository draftRepository;
+```
+
+- **建议方法**：
+
+```java
+AiTaskEntity submitTask(Long userId, Long draftId, AiWritingTaskTypeEnum taskType, Map<String, Object> promptParams);
+```
+
+- **说明**：
+  - 负责把草稿上下文组装成写作请求。
+  - 内部调用 `armory`，但不把 `armory` 细节暴露给 Trigger。
+
+##### 7. `cn.sutone.ai.domain.agent.service.ai_writing.AiTaskDomainService`
+
+- **定位**：任务生命周期管理。
+- **建议依赖**：
+
+```java
+private IAiTaskRepository aiTaskRepository;
+```
+
+- **建议方法**：
+
+```java
+AiTaskEntity createTask(...);
+AiTaskEntity queryTaskDetail(Long taskId);
+void markRunning(Long taskId);
+void markSuccess(Long taskId, String responseContent);
+void markFailed(Long taskId, String errorMsg);
+```
+
+##### 8. `cn.sutone.ai.domain.agent.service.ai_writing.StreamGenerationDomainService`
+
+- **定位**：统一流式事件转换。
+- **建议方法**：
+
+```java
+AiWritingStreamEventDTO buildStatusEvent(String phase, String content);
+AiWritingStreamEventDTO buildTokenEvent(String phase, String content);
+AiWritingStreamEventDTO buildDoneEvent();
+AiWritingStreamEventDTO buildErrorEvent(String message);
+```
+
+- **说明**：
+  - 这个类的存在价值，是把“底层模型事件格式”与“前端页面事件协议”隔离开。
+  - 后续如果从 `ResponseBodyEmitter` 切换到 `SseEmitter`，它无需变化。
+
+### 7.5 Infrastructure 层逐文件骨架设计（`sutone-agent-bok-infrastructure`）
+
+建议新增包结构：
+
+```text
+cn.sutone.ai.infrastructure
+├── dao
+│   ├── IDraftDao.java
+│   ├── IArticleDao.java
+│   ├── IArticleMetaDao.java
+│   ├── IAiTaskDao.java
+│   └── po
+│       ├── DraftPO.java
+│       ├── ArticlePO.java
+│       ├── ArticleMetaPO.java
+│       └── AiTaskPO.java
+├── adapter
+│   └── repository
+│       ├── DraftRepository.java
+│       ├── ArticleRepository.java
+│       └── AiTaskRepository.java
+└── gateway
+    └── stream
+        └── AiWritingStreamEmitter.java
+```
+
+#### 7.5.1 DAO / PO
+
+##### 1. `cn.sutone.ai.infrastructure.dao.IDraftDao`
+
+- **定位**：草稿表 MyBatis DAO。
+- **建议方法**：
+
+```java
+int insert(DraftPO draftPO);
+int update(DraftPO draftPO);
+DraftPO queryByDraftId(Long draftId);
+List<DraftPO> queryPage(@Param("userId") Long userId, @Param("offset") Integer offset, @Param("pageSize") Integer pageSize);
+Integer countByUserId(Long userId);
+```
+
+##### 2. `cn.sutone.ai.infrastructure.dao.IArticleDao`
+
+- **定位**：文章主表 DAO。
+- **建议方法**：
+
+```java
+int insert(ArticlePO articlePO);
+ArticlePO queryByArticleId(Long articleId);
+List<ArticlePO> queryPage(@Param("offset") Integer offset, @Param("pageSize") Integer pageSize);
+Integer countPage();
+int increaseViewCount(Long articleId);
+```
+
+##### 3. `cn.sutone.ai.infrastructure.dao.IArticleMetaDao`
+
+- **定位**：文章元信息表 DAO。
+- **建议方法**：
+
+```java
+int insert(ArticleMetaPO articleMetaPO);
+ArticleMetaPO queryByArticleId(Long articleId);
+```
+
+##### 4. `cn.sutone.ai.infrastructure.dao.IAiTaskDao`
+
+- **定位**：AI 任务表 DAO。
+- **建议方法**：
+
+```java
+int insert(AiTaskPO aiTaskPO);
+int update(AiTaskPO aiTaskPO);
+AiTaskPO queryByTaskId(Long taskId);
+```
+
+##### 5. `cn.sutone.ai.infrastructure.dao.po.DraftPO`
+
+- **定位**：`draft` 表持久化对象。
+- **建议字段**：
+
+```java
+private Long id;
+private Long draftId;
+private Long userId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private Integer status;
+private Date createTime;
+private Date updateTime;
+```
+
+##### 6. `cn.sutone.ai.infrastructure.dao.po.ArticlePO`
+
+- **定位**：`article` 表持久化对象。
+- **建议字段**：
+
+```java
+private Long id;
+private Long articleId;
+private Long draftId;
+private Long authorId;
+private String title;
+private String contentMd;
+private String summary;
+private String coverUrl;
+private Integer status;
+private Date publishTime;
+private Date createTime;
+private Date updateTime;
+```
+
+##### 7. `cn.sutone.ai.infrastructure.dao.po.ArticleMetaPO`
+
+- **定位**：`article_meta` 表持久化对象。
+- **建议字段**：
+
+```java
+private Long id;
+private Long articleId;
+private Integer viewCount;
+private Integer likeCount;
+private Integer favoriteCount;
+private String tags;
+private Date createTime;
+private Date updateTime;
+```
+
+- **说明**：
+  - `tags` 一期可先按 JSON 字符串或逗号分隔存储，后续再决定是否拆关联表。
+
+##### 8. `cn.sutone.ai.infrastructure.dao.po.AiTaskPO`
+
+- **定位**：`ai_task` 表持久化对象。
+- **建议字段**：
+
+```java
+private Long id;
+private Long taskId;
+private Long draftId;
+private Long userId;
+private String taskType;
+private Integer status;
+private String requestPayload;
+private String responseContent;
+private String errorMsg;
+private Date createTime;
+private Date updateTime;
+```
+
+#### 7.5.2 Repository 实现
+
+##### 1. `cn.sutone.ai.infrastructure.adapter.repository.DraftRepository`
+
+- **实现接口**：`IDraftRepository`
+- **职责**：
+  - `DraftEntity <-> DraftPO` 转换。
+  - 调用 `IDraftDao` 完成增删改查。
+  - 屏蔽分页 offset 计算等基础设施细节。
+
+##### 2. `cn.sutone.ai.infrastructure.adapter.repository.ArticleRepository`
+
+- **实现接口**：`IArticleRepository`
+- **职责**：
+  - 同时编排 `IArticleDao` 与 `IArticleMetaDao`。
+  - 聚合 `ArticlePO + ArticleMetaPO` 组装 `ArticleEntity`。
+  - 处理文章发布时的双表落库。
+
+##### 3. `cn.sutone.ai.infrastructure.adapter.repository.AiTaskRepository`
+
+- **实现接口**：`IAiTaskRepository`
+- **职责**：
+  - 负责 `AiTaskEntity <-> AiTaskPO` 转换。
+  - 屏蔽任务状态枚举与数据库状态码映射。
+
+#### 7.5.3 流式输出适配
+
+##### 1. `cn.sutone.ai.infrastructure.gateway.stream.AiWritingStreamEmitter`
+
+- **定位**：对 `ResponseBodyEmitter` 的发送动作做一层轻包装。
+- **建议方法**：
+
+```java
+void send(ResponseBodyEmitter emitter, AiWritingStreamEventDTO eventDTO);
+void complete(ResponseBodyEmitter emitter);
+void completeWithError(ResponseBodyEmitter emitter, Throwable throwable);
+```
+
+- **说明**：
+  - 这不是必须文件，但建议保留。
+  - 这样可以把 JSON 序列化、换行、异常吞吐策略集中处理，不让 Controller 塞满 `emitter.send(...)` 细节。
 
 ### 7.7 推荐实现顺序
 
-为了降低实现风险，建议后端按以下顺序推进：
+> **核心建议**：
+> 一期不要先从“AI 能力增强”入手，而要先从“内容平台最短业务闭环”入手。
+> 最推荐的项目开展顺序是：**先定数据基线 -> 再完成内容资产闭环 -> 再接 AI 任务链路 -> 最后补页面与增强能力。**
 
-1. **先补 API DTO**
-   - 因为前后端联调首先依赖 DTO 对齐
+#### 7.7.1 总体开展顺序（项目视角）
 
-2. **再补 Trigger Controller**
-   - 先把接口路径和返回结构跑通
+建议按以下 6 个阶段推进，而不是前后端同时散点开发：
 
-3. **再补 Domain 骨架**
-   - 先建空接口、空服务类，把层次搭起来
+1. **阶段一：冻结一期数据基线**
+2. **阶段二：完成用户与登录最小基线**
+3. **阶段三：优先落 `content` 域闭环**
+4. **阶段四：再接 `agent.ai_writing` 任务链路**
+5. **阶段五：前端围绕最小闭环联调**
+6. **阶段六：最后补平台增强项**
 
-4. **最后补 Infrastructure**
-   - 接数据库、落仓储实现
+这样推进的原因很明确：
+- 先定数据库，后端模型和接口才不会反复返工。
+- 先做 `content`，项目就先成为“内容平台”，而不是“AI Demo”。
+- 先完成任务链路，再谈模型效果，才能把 AI 能力沉淀成工程资产。
 
-5. **SSE 最后闭环**
-   - 在草稿保存和任务提交可用后，再把流式生成接起来
+#### 7.7.2 阶段一：冻结一期数据基线
+
+这是最优先的起点，也是当前项目最该先补齐的缺口。
+
+建议先完成：
+
+1. 将第 2 节已经确认的 5 张表整理成正式 SQL / migration 脚本
+   - `user`
+   - `draft`
+   - `article`
+   - `article_meta`
+   - `ai_task`
+
+2. 明确数据库命名与初始化方式
+   - 本地开发库名称
+   - Docker 初始化脚本位置
+   - 后续是否采用 Flyway / 手工 SQL
+
+3. 形成一期唯一可信的数据基线
+   - 后续 DTO、Repository、DAO、前端接口都围绕这份 DDL 对齐
+
+**为什么必须先做这一阶段**
+- 当前仓库里真正存在的是旧脚手架数据库初始化 SQL，不是一期内容平台正式 DDL。
+- 如果不先冻结表结构，后续 `DraftEntity`、`ArticleEntity`、`AiTaskEntity` 很容易一边开发一边改字段。
+
+**阶段产出**
+- 一份正式可执行的数据库初始化脚本
+- 一份与文档一致的数据库命名约定
+
+#### 7.7.3 阶段二：完成用户与登录最小基线
+
+一期不需要先做复杂权限系统，但必须先有“用户归属”这个最小事实。
+
+建议先完成：
+
+1. `user` 表落地与基础数据准备
+2. 登录接口最小实现
+3. 后端能稳定拿到当前 `userId`
+4. 草稿、文章、AI 任务都能绑定用户
+
+**为什么这一阶段排在第二**
+- 没有用户归属，`/drafts`、`/me`、发布动作、草稿权限校验都会变成伪场景。
+- 后续如果再补用户归属，会导致大量接口签名和查询条件重做。
+
+**阶段产出**
+- 登录态最小闭环可用
+- 所有内容资产都能归属到用户
+
+#### 7.7.4 阶段三：优先落 `content` 域闭环
+
+这一阶段是一期真正的业务主线，优先级高于 AI 写作本身。
+
+建议按以下顺序落地：
+
+1. **先补 API / DTO 契约**
+   - `SaveDraftRequestDTO`
+   - `DraftDetailResponseDTO`
+   - `PublishArticleRequestDTO`
+   - `ArticleDetailResponseDTO`
+
+2. **再补 Domain 骨架**
+   - `DraftEntity`
+   - `ArticleEntity`
+   - `ArticleMetaEntity`
+   - `DraftDomainService`
+   - `PublishDomainService`
+   - `ArticleDomainService`
+
+3. **再补 Repository / DAO / PO**
+   - `IDraftRepository`
+   - `IArticleRepository`
+   - `DraftRepository`
+   - `ArticleRepository`
+
+4. **最后补 Trigger Controller**
+   - `ContentDraftController`
+   - `ArticleController`
+
+这一阶段优先跑通的接口建议是：
+
+```text
+POST /drafts/save
+GET /drafts/{draftId}
+POST /articles/publish
+GET /articles/{articleId}
+```
+
+第二批再补：
+
+```text
+GET /drafts/page
+POST /drafts/{draftId}/discard
+GET /articles/page
+```
+
+**为什么先做 `content` 域**
+- 项目的核心业务价值是“内容生产与发布”，不是“单次模型调用”。
+- 只要 `Draft -> Article` 跑通，项目就已经是一个可演示、可讲故事的平台。
+
+**阶段产出**
+- 草稿编辑与文章发布主链路可用
+- 内容平台主干成立
+
+#### 7.7.5 阶段四：再接 `agent.ai_writing` 任务链路
+
+等 `content` 域稳定后，再接入 AI 写作任务。
+
+建议按以下顺序推进：
+
+1. `AiTaskEntity`、`AiTaskStatusEnum`、`AiWritingTaskTypeEnum`
+2. `IAiTaskRepository`、`AiTaskRepository`、`IAiTaskDao`
+3. `AiTaskDomainService`
+4. `AiWritingDomainService`
+5. `StreamGenerationDomainService`
+6. `AiWritingController`
+7. SSE 输出适配
+
+这一阶段建议优先实现的接口：
+
+```text
+POST /ai-writing/task/submit
+GET /ai-writing/task/stream
+```
+
+第二批补齐：
+
+```text
+GET /ai-writing/task/{taskId}
+```
+
+**为什么 AI 任务链路排在 `content` 后面**
+- 如果内容域还不稳定，AI 生成的结果没有稳定落点，最终只会回到“对话演示”。
+- `AiTask` 的价值不是把模型调起来，而是把生成行为变成可追踪、可恢复、可发布的业务过程。
+
+**阶段产出**
+- AI 写作具备提交、流式返回、结果落稿、状态追踪能力
+
+#### 7.7.6 阶段五：前端围绕最小闭环联调
+
+前端不建议同时铺开全部页面，而应严格围绕核心闭环推进。
+
+建议页面联调顺序：
+
+1. `/login`
+2. `/drafts/[draftId]`
+3. `/articles/[articleId]`
+4. `/drafts`
+5. `/articles`
+6. `/me`
+
+对应联调主流程：
+
+```text
+登录 -> 新建草稿 -> 编辑草稿 -> 发起 AI 写作 -> 落稿 -> 发布 -> 查看文章详情
+```
+
+**为什么前端放在这里**
+- 只有当前 4 个阶段的接口和数据稳定后，前端联调才不会反复返工。
+- 页面越早全面铺开，越容易把时间耗在 UI 细节，而不是业务闭环。
+
+**阶段产出**
+- 一期主流程可在真实页面中走通
+
+#### 7.7.7 阶段六：最后补平台增强项
+
+这一阶段不属于一期主闭环的前置条件，应排在最后。
+
+建议放在最后补的内容包括：
+
+1. 工作台首页聚合展示
+2. 草稿箱分页、废弃草稿
+3. AI 任务详情恢复与刷新恢复
+4. 文章列表分页与统计信息
+5. 个人中心页
+6. Draw.io / PPT 能力与内容平台的融合
+
+**边界提醒**
+- Draw.io 与 PPT 当前应保留为能力点，不应抢占一期主线。
+- 一期先证明“内容平台 + AI 写作任务闭环”成立，后续再把 Draw.io/PPT 包装成创作增强能力。
+
+#### 7.7.8 推荐的执行里程碑
+
+为了便于项目管理，建议按下面 4 个里程碑判断进度：
+
+1. **M1：数据基线完成**
+   - 一期 DDL 正式落库
+   - 本地 Docker 数据库可初始化
+
+2. **M2：内容域闭环完成**
+   - 草稿保存、草稿详情、发布文章、文章详情可用
+
+3. **M3：AI 写作闭环完成**
+   - 提交任务、流式返回、任务落稿、任务状态追踪可用
+
+4. **M4：前端主流程闭环完成**
+   - 用户可在页面上完成登录、创作、发布、查看文章
+
+#### 7.7.9 如果只能先做一件事，最建议先做什么
+
+如果下一步只做一个动作，我最建议优先做：
+
+```text
+把第 2 节的 5 张表整理成正式 init SQL，并作为一期数据库唯一基线
+```
+
+这是当前所有后续开发的起点。没有这一步，后面的接口、仓储、领域服务和页面联调都会处于漂浮状态。
 
 ### 7.8 第一阶段最低可运行清单
 

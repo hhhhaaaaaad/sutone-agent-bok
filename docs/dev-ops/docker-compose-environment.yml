@@ -1,6 +1,5 @@
-# 命令执行 docker-compose -f docker-compose-environment-aliyun.yml up -d
+# 命令执行 docker-compose -f docker-compose-environment.yml up -d
 # docker 代理和使用文档；https://sukesutone.cn/md/road-map/docker.html
-version: '3.9'
 services:
   mysql:
     image: mysql:8.0.32
@@ -26,6 +25,8 @@ services:
 
   # phpmyadmin https://hub.docker.com/_/phpmyadmin
   phpmyadmin:
+    profiles:
+      - tools
     image: phpmyadmin:5.2.1
     container_name: phpmyadmin
     hostname: phpmyadmin
@@ -63,6 +64,8 @@ services:
 
   # RedisAdmin https://github.com/joeferner/redis-commander
   redis-admin:
+    profiles:
+      - tools
     image: spryker/redis-commander:0.8.0
     container_name: redis-admin
     hostname: redis-commander
