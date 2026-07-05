@@ -1,0 +1,5 @@
+spring:
+  config:
+    name: sutone-agent-bok-app
+  profiles:
+    active: dev

@@ -1,0 +1,55 @@
+# /usr/local/bin/docker-compose -f /docs/dev-ops/environment/environment-docker-compose-2.4.yml up -d
+version: '3.8'
+# docker-compose -f docker-compose-app.yml up -d
+# 你需要修改system为你自身系统的仓库名
+services:
+  ## 后端服务，注意修改 智能体 DRAWIOAGENT 配置。
+  sutone-agent-bok-app:
+    image: registry.cn-hangzhou.aliyuncs.com/sudonghao/sutone-agent-bok-app:1.9
+#    image: sudonghao/sutone-agent-bok-app:1.0
+    container_name: sutone-agent-bok-app
+    restart: on-failure
+    ports:
+      - "8091:8091"
+    environment:
+      - TZ=PRC
+      - SERVER_PORT=8091
+      # 模型与 MCP 搜索能力统一改为环境变量注入，避免把真实密钥写入仓库。
+      - SUTONE_DRAWIO_MODEL_BASE_URL=${SUTONE_DRAWIO_MODEL_BASE_URL:-https://api.deepseek.com}
+      - SUTONE_DRAWIO_MODEL_API_KEY=${SUTONE_DRAWIO_MODEL_API_KEY:-YOUR_DRAWIO_MODEL_API_KEY}
+      - SUTONE_DRAWIO_MODEL_COMPLETIONS_PATH=${SUTONE_DRAWIO_MODEL_COMPLETIONS_PATH:-chat/completions}
+      - SUTONE_DRAWIO_MODEL_EMBEDDINGS_PATH=${SUTONE_DRAWIO_MODEL_EMBEDDINGS_PATH:-v1/embeddings}
+      - SUTONE_DRAWIO_MODEL_NAME=${SUTONE_DRAWIO_MODEL_NAME:-deepseek-v4-pro}
+      - SUTONE_DRAWIO_BAIDU_SEARCH_API_KEY=${SUTONE_DRAWIO_BAIDU_SEARCH_API_KEY:-YOUR_DRAWIO_BAIDU_SEARCH_API_KEY}
+      - SUTONE_PPT_MODEL_BASE_URL=${SUTONE_PPT_MODEL_BASE_URL:-https://apis.itedus.cn}
+      - SUTONE_PPT_MODEL_API_KEY=${SUTONE_PPT_MODEL_API_KEY:-YOUR_PPT_MODEL_API_KEY}
+      - SUTONE_PPT_MODEL_COMPLETIONS_PATH=${SUTONE_PPT_MODEL_COMPLETIONS_PATH:-v1/chat/completions}
+      - SUTONE_PPT_MODEL_EMBEDDINGS_PATH=${SUTONE_PPT_MODEL_EMBEDDINGS_PATH:-v1/embeddings}
+      - SUTONE_PPT_MODEL_NAME=${SUTONE_PPT_MODEL_NAME:-gpt-5.5}
+      - SUTONE_PPT_BAIDU_SEARCH_API_KEY=${SUTONE_PPT_BAIDU_SEARCH_API_KEY:-YOUR_PPT_BAIDU_SEARCH_API_KEY}
+    volumes:
+      - ./log:/data/log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - my-network
+
+  ## 前端服务，注意 image 如果你有自己的镜像，记得更换。
+  sutone-agent-bok-front:
+    image: registry.cn-hangzhou.aliyuncs.com/sudonghao/sutone-agent-bok-front:1.7
+#    image: sudonghao/sutone-agent-bok-front:1.0
+    container_name: sutone-agent-bok-front
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      # 修改 http://192.168.1.110:8091/api/v1 为你的IP地址。
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://81.70.245.73:8091/api/v1}
+      - NODE_ENV=production
+
+networks:
+  my-network:
+    driver: bridge
