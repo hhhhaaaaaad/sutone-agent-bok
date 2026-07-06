@@ -13,7 +13,7 @@ ai:
               base-url: ${SUTONE_DRAWIO_MODEL_BASE_URL:https://api.deepseek.com}
               api-key: ${SUTONE_DRAWIO_MODEL_API_KEY:YOUR_DRAWIO_MODEL_API_KEY}
               completions-path: ${SUTONE_DRAWIO_MODEL_COMPLETIONS_PATH:chat/completions}
-              embeddings-path: ${SUTONE_DRAWIO_MODEL_EMBEDDINGS_PATH:v1/embeddings}
+              embeddings-path: ${SUTONE_DRAWIO_MODEL_EMBEDDINGS_PATH:embeddings}
             chat-model:
               model: ${SUTONE_DRAWIO_MODEL_NAME:deepseek-v4-pro}
               tool-mcp-list:
