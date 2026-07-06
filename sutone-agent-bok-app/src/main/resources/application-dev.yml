@@ -21,6 +21,7 @@ spring:
 #       - classpath:agent/only-one-agent.yml
        - classpath:agent/agent-draw-io.yml
        - classpath:agent/agent-ppt.yml
+       - classpath:agent/agent-writing.yml
   datasource:
     username: root
     password: 123456

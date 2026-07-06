@@ -2,7 +2,7 @@ package cn.sutone.ai.test.domain.content.service.article;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.domain.content.service.article.ArticleDomainService;
 import cn.sutone.ai.types.exception.AppException;
 import org.junit.jupiter.api.BeforeEach;

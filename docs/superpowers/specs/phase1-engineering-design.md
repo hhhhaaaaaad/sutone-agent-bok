@@ -5,9 +5,10 @@
 > 后续所有关于数据库设计、API 契约、前端路由、后端领域层重构的详细方案，均会追加并更新至本文档中。
 
 ## 1. 第一期项目概述
-- **核心定位**：AI 技术知识生产与社区平台（聚焦“创作-发布”闭环）
-- **核心链路**：`登录 -> AI 创作 -> 草稿编辑 -> 发布 -> 文章展示 -> 个人中心管理`
-- **暂缓内容**：Draw.io 图表深度集成、复杂社区互动（点赞/评论/收藏/关注）。
+- **核心定位**：Agent 驱动的技术写作与内容发布平台（聚焦“Agent 写作-草稿采纳-发布”闭环）
+- **核心链路**：`登录 -> Agent 写作任务 -> 草稿编辑与结果采纳 -> 发布 -> 文章展示 -> 个人中心管理`
+- **领域边界**：第一期保持 `agent + content` 双域结构，`ai-writing` 放在 `agent.service` 下作为 `chat` 的升级版。
+- **暂缓内容**：Draw.io 图表深度集成、完整 `community` 社区模块、复杂社区互动（点赞/评论/收藏/关注/推荐流）。
 
 ## 2. 数据库表结构设计
 
@@ -751,7 +752,8 @@ router.push(publishResp.data.articleUrl);
 
 > **重构背景**：
 > 当前项目中的 `ChatService` 将会话、大模型调用和业务逻辑强耦合在一起，偏向于原型 Demo。
-> 本期设计旨在利用 DDD（领域驱动设计）思想，将系统从“以聊天为中心”重构为“以内容生产和任务编排为中心”，提升系统的可扩展性和业务表达能力。
+> 本期设计旨在利用 DDD（领域驱动设计）思想，将系统从“以聊天为中心”重构为“以 Agent 写作任务和内容发布为中心”，提升系统的可扩展性和业务表达能力。
+> 社区能力不进入第一期主域建模，第二期再新增 `community` 模块承载互动与分发能力。
 
 ### 4.1 架构设计推演：收敛为 `content + agent` 双域结构
 
@@ -776,9 +778,10 @@ router.push(publishResp.data.articleUrl);
 
 **本期结论**
 第一期架构采用 **`content + agent` 双域结构**。其中：
-- `content` 负责内容状态流转与发布规则；
-- `agent` 负责 AI 能力编排；
-- `ai_writing` 不是独立领域，而是 `agent` 域内部用于替代 `chat` 的业务子模块。
+- `content` 负责内容状态流转、草稿编辑、结果采纳与发布规则；
+- `agent` 负责 AI 能力编排与写作任务执行；
+- `ai_writing` 不是独立领域，而是 `agent` 域内部用于替代 `chat` 的业务子模块；
+- `community` 不进入第一期领域实现，第二期再作为独立模块新增。
 
 ### 4.2 领域划分与包结构 (Package Structure)
 
@@ -786,7 +789,7 @@ router.push(publishResp.data.articleUrl);
 
 ```text
 cn.sutone.ai.domain
-├── content                    // 1. 内容核心域
+├── content                    // 1. 内容核心域，负责草稿、文章、发布与结果采纳
 │   ├── model
 │   │   ├── entity             // DraftEntity, ArticleEntity, ArticleMetaEntity
 │   │   └── valobj             // DraftStatusEnum, ArticleStatusEnum 等
@@ -795,7 +798,7 @@ cn.sutone.ai.domain
 │       ├── draft              // DraftDomainService
 │       ├── article            // ArticleDomainService
 │       └── publish            // PublishDomainService
-└── agent                      // 2. AI 能力域
+└── agent                      // 2. AI 能力域，负责 Agent 引擎与写作任务编排
     ├── model
     │   ├── entity             // AiTaskEntity, ChatCommandEntity 等
     │   └── valobj             // Agent注册信息、配置值对象
@@ -803,6 +806,9 @@ cn.sutone.ai.domain
     └── service
         ├── armory             // 保留原有 Agent 引擎、工作流、节点、自动装配
         └── ai_writing         // 由 chat 演进而来，封装写作类 AI 能力
+
+// 第二期再新增：
+// └── community               // 社区互动域，负责评论、点赞、收藏、关注、推荐流等
 ```
 
 **边界说明**
@@ -2649,8 +2655,9 @@ void completeWithError(ResponseBodyEmitter emitter, Throwable throwable);
 ### 7.7 推荐实现顺序
 
 > **核心建议**：
-> 一期不要先从“AI 能力增强”入手，而要先从“内容平台最短业务闭环”入手。
-> 最推荐的项目开展顺序是：**先定数据基线 -> 再完成内容资产闭环 -> 再接 AI 任务链路 -> 最后补页面与增强能力。**
+> 一期已经完成内容域基础闭环后，后续重心应转向 `agent.service.ai_writing`，把原有 `chat` 能力升级为面向技术写作的 Agent 任务链路。
+> 社区能力不参与第一期主流程，第二期再新增 `community` 模块。
+> 推荐推进顺序是：**稳定内容资产闭环 -> 接入 Agent 写作任务链路 -> 前端完成结果采纳与发布联调 -> 再补增强能力。**
 
 #### 7.7.1 总体开展顺序（项目视角）
 
@@ -2859,11 +2866,14 @@ GET /ai-writing/task/{taskId}
 2. **M2：内容域闭环完成**
    - 草稿保存、草稿详情、发布文章、文章详情可用
 
-3. **M3：AI 写作闭环完成**
+3. **M3：Agent 写作闭环完成**
+   - `agent.service.ai_writing` 作为 `chat` 升级版可用
    - 提交任务、流式返回、任务落稿、任务状态追踪可用
+   - 生成结果支持插入、追加、替换、摘要回填等采纳动作
 
 4. **M4：前端主流程闭环完成**
-   - 用户可在页面上完成登录、创作、发布、查看文章
+   - 用户可在页面上完成登录、Agent 写作、草稿采纳、发布、查看文章
+   - 社区互动入口只保留轻量展示，不实现完整 `community` 业务
 
 #### 7.7.9 如果只能先做一件事，最建议先做什么
 
@@ -2902,5 +2912,7 @@ GET /articles/page
 这套顺序对应的就是最核心的业务闭环：
 
 ```text
-新建草稿 -> 编辑草稿 -> 发起 AI 生成 -> 落稿 -> 发布 -> 查看文章详情
+新建草稿 -> 编辑草稿 -> 发起 Agent 写作任务 -> 采纳生成结果 -> 发布 -> 查看文章详情
 ```
+
+第二期再在此基础上新增 `community` 模块，补齐文章互动、评论、点赞、收藏、关注、推荐流和作者主页等社区能力。

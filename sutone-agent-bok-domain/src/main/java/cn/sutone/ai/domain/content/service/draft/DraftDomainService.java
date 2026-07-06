@@ -2,7 +2,7 @@ package cn.sutone.ai.domain.content.service.draft;
 
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import org.springframework.stereotype.Service;
-import cn.sutone.ai.domain.content.repository.IDraftRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
 import cn.sutone.ai.domain.content.service.command.SaveDraftCommand;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;

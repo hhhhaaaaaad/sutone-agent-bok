@@ -2,7 +2,7 @@ package cn.sutone.ai.domain.content.service.article;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import org.springframework.stereotype.Service;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 

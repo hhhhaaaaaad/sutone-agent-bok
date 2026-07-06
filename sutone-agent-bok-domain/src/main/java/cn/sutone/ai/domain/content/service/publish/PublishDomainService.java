@@ -4,8 +4,8 @@ import cn.sutone.ai.domain.content.model.aggregate.ContentAggregate;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
-import cn.sutone.ai.domain.content.repository.IDraftRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 

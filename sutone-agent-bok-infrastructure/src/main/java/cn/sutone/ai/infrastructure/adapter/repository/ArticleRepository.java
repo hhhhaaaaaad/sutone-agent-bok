@@ -3,7 +3,7 @@ package cn.sutone.ai.infrastructure.adapter.repository;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.ArticleMetaEntity;
 import cn.sutone.ai.domain.content.model.valobj.ArticleStatusVO;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.infrastructure.dao.IArticleDao;
 import cn.sutone.ai.infrastructure.dao.IArticleMetaDao;
 import cn.sutone.ai.infrastructure.dao.po.ArticleMetaPO;
