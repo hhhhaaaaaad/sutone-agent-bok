@@ -1,6 +1,7 @@
 package cn.sutone.ai.domain.content.service.article;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
+import cn.sutone.ai.domain.content.service.IArticleDomainService;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.types.enums.ResponseCode;
@@ -12,7 +13,7 @@ import java.util.List;
  * 文章领域服务
  */
 @Service
-public class ArticleDomainService {
+public class ArticleDomainService implements IArticleDomainService {
 
     private final IArticleRepository articleRepository;
 

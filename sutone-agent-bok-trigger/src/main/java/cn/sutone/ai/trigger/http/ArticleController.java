@@ -5,8 +5,8 @@ import cn.sutone.ai.api.dto.PageResponseDTO;
 import cn.sutone.ai.api.dto.article.*;
 import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
-import cn.sutone.ai.domain.content.service.article.ArticleDomainService;
-import cn.sutone.ai.domain.content.service.publish.PublishDomainService;
+import cn.sutone.ai.domain.content.service.IArticleDomainService;
+import cn.sutone.ai.domain.content.service.IPublishDomainService;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import jakarta.annotation.Resource;
@@ -30,10 +30,10 @@ public class ArticleController implements IArticleService {
     private static final Long DEFAULT_USER_ID = 1L;
 
     @Resource
-    private PublishDomainService publishDomainService;
+    private IPublishDomainService publishDomainService;
 
     @Resource
-    private ArticleDomainService articleDomainService;
+    private IArticleDomainService articleDomainService;
 
     @PostMapping("articles/publish")
     @Override

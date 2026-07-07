@@ -5,8 +5,8 @@ import cn.sutone.ai.api.dto.PageResponseDTO;
 import cn.sutone.ai.api.dto.draft.*;
 import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
+import cn.sutone.ai.domain.content.service.IDraftDomainService;
 import cn.sutone.ai.domain.content.service.command.SaveDraftCommand;
-import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import jakarta.annotation.Resource;
@@ -29,7 +29,7 @@ public class ContentDraftController implements IContentDraftService {
     private static final Long DEFAULT_USER_ID = 1L;
 
     @Resource
-    private DraftDomainService draftDomainService;
+    private IDraftDomainService draftDomainService;
 
     @PostMapping("drafts/save")
     @Override

@@ -1,6 +1,7 @@
 package cn.sutone.ai.domain.content.service.draft;
 
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
+import cn.sutone.ai.domain.content.service.IDraftDomainService;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
 import cn.sutone.ai.domain.content.service.command.SaveDraftCommand;
@@ -13,7 +14,7 @@ import java.util.List;
  * 草稿领域服务
  */
 @Service
-public class DraftDomainService {
+public class DraftDomainService implements IDraftDomainService {
 
     private final IDraftRepository draftRepository;
 

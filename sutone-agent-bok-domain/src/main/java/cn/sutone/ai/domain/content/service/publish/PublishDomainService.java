@@ -1,6 +1,7 @@
 package cn.sutone.ai.domain.content.service.publish;
 
 import cn.sutone.ai.domain.content.model.aggregate.ContentAggregate;
+import cn.sutone.ai.domain.content.service.IPublishDomainService;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
@@ -15,7 +16,7 @@ import java.util.List;
  * 发布领域服务
  */
 @Service
-public class PublishDomainService {
+public class PublishDomainService implements IPublishDomainService {
 
     private final IDraftRepository draftRepository;
     private final IArticleRepository articleRepository;
