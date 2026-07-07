@@ -13,7 +13,10 @@ public enum AiWritingTaskTypeVO {
     GENERATE_OUTLINE("GENERATE_OUTLINE", "生成大纲"),
     GENERATE_BODY("GENERATE_BODY", "续写正文"),
     POLISH_TEXT("POLISH_TEXT", "润色改写"),
-    SUMMARIZE("SUMMARIZE", "生成摘要");
+    SUMMARIZE("SUMMARIZE", "生成摘要"),
+    GENERATE_TITLE("GENERATE_TITLE", "生成标题"),
+    GENERATE_TAGS("GENERATE_TAGS", "生成标签"),
+    QUALITY_CHECK("QUALITY_CHECK", "发布质量检查");
 
     private final String code;
     private final String desc;

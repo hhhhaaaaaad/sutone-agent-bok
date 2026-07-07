@@ -31,7 +31,7 @@ public class AiTaskEntity {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
-    public static AiTaskEntity initRunning(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload) {
+    public static AiTaskEntity initPending(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload) {
         if (null == userId) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "用户ID不能为空");
         }
@@ -45,10 +45,18 @@ public class AiTaskEntity {
                 .draftId(draftId)
                 .taskType(taskType)
                 .promptPayload(promptPayload)
-                .status(AiTaskStatusVO.RUNNING)
+                .status(AiTaskStatusVO.PENDING)
                 .createTime(now)
                 .updateTime(now)
                 .build();
+    }
+
+    public void startRunning() {
+        if (this.status != AiTaskStatusVO.PENDING) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "只有待处理状态的任务可以开始运行");
+        }
+        this.status = AiTaskStatusVO.RUNNING;
+        this.updateTime = LocalDateTime.now();
     }
 
     public void markSuccess(String responseContent) {

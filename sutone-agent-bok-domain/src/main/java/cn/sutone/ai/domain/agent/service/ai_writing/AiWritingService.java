@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * AI 写作服务实现
@@ -45,7 +47,7 @@ public class AiWritingService implements IAiWritingService {
         String prompt = buildPrompt(draft, taskType, promptParams);
 
         Long taskId = aiTaskRepository.nextTaskId();
-        AiTaskEntity task = AiTaskEntity.initRunning(taskId, userId, draftId, taskType, prompt);
+        AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt);
         aiTaskRepository.save(task);
         return task;
     }
@@ -63,6 +65,11 @@ public class AiWritingService implements IAiWritingService {
     @Override
     public void generateStream(Long taskId, Long userId, Consumer<AiWritingStreamEventVO> eventConsumer) {
         AiTaskEntity task = queryTask(taskId, userId);
+
+        // 标记任务为运行中
+        task.startRunning();
+        aiTaskRepository.update(task);
+
         String agentId = resolveAgentId();
         String sessionId = chatService.createSession(agentId, String.valueOf(userId));
         StringBuilder responseBuilder = new StringBuilder();
@@ -86,9 +93,22 @@ public class AiWritingService implements IAiWritingService {
             markSuccess(task, responseBuilder.toString());
             eventConsumer.accept(doneEvent());
         } catch (Exception e) {
-            markFailed(task, e.getMessage());
-            eventConsumer.accept(errorEvent(null == e.getMessage() ? "AI 写作生成失败" : e.getMessage()));
+            String errorMsg = e.getMessage();
+            if (null == errorMsg || errorMsg.isBlank()) {
+                errorMsg = e.getClass().getSimpleName();
+            }
+            markFailed(task, errorMsg);
+            eventConsumer.accept(errorEvent(errorMsg));
         }
+    }
+
+    // ==================== public ====================
+
+    @Override
+    public List<AiTaskEntity> queryTaskList(Long draftId, Long userId, int limit) {
+        // 验证草稿归属
+        draftDomainService.queryDraftDetail(draftId, userId);
+        return aiTaskRepository.queryLatestByDraftId(draftId, limit);
     }
 
     // ==================== private ====================
@@ -117,6 +137,9 @@ public class AiWritingService implements IAiWritingService {
 
     private String buildPrompt(DraftEntity draft, AiWritingTaskTypeVO taskType, Map<String, Object> promptParams) {
         String extraParams = null == promptParams || promptParams.isEmpty() ? "{}" : String.valueOf(promptParams);
+        String customInstruction = null == promptParams ? null : (String) promptParams.get("customInstruction");
+        String selectedText = null == promptParams ? null : (String) promptParams.get("selectedText");
+        String customSuffix = null == customInstruction || customInstruction.isBlank() ? "" : "\n\n用户额外指令：%s".formatted(customInstruction);
         return switch (taskType) {
             case GENERATE_OUTLINE -> """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文，为这篇技术文章生成 Markdown 大纲。
@@ -127,8 +150,8 @@ public class AiWritingService implements IAiWritingService {
                     当前正文：
                     %s
 
-                    额外参数：%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams);
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
             case GENERATE_BODY -> """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文续写正文，输出 Markdown 内容。
                     要求：保持技术准确、表达自然、结构连贯，不要重复已有正文，不要输出解释说明。
@@ -138,19 +161,24 @@ public class AiWritingService implements IAiWritingService {
                     当前正文：
                     %s
 
-                    额外参数：%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams);
-            case POLISH_TEXT -> """
-                    你是一个高级技术写作 Agent。请对当前草稿进行润色改写，提升表达质量、技术严谨性和阅读流畅度。
-                    要求：保留原意，输出完整 Markdown 改写结果，不要输出解释说明。
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+            case POLISH_TEXT -> {
+                boolean hasSelectedText = null != selectedText && !selectedText.isBlank();
+                String body = hasSelectedText ? selectedText : nullToEmpty(draft.getContentMd());
+                String desc = hasSelectedText ? "请对以下选中文本进行润色改写，只输出改写结果，不要输出解释说明。"
+                        : "请对当前草稿进行润色改写，提升表达质量、技术严谨性和阅读流畅度。要求：保留原意，输出完整 Markdown 改写结果，不要输出解释说明。";
+                yield """
+                    你是一个高级技术写作 Agent。%s
 
                     标题：%s
                     摘要：%s
-                    当前正文：
+                    待处理文本：
                     %s
 
-                    额外参数：%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams);
+                    额外参数：%s%s
+                    """.formatted(desc, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), body, extraParams, customSuffix);
+            }
             case SUMMARIZE -> """
                     你是一个高级技术写作 Agent。请基于当前草稿生成一段适合发布页展示的文章摘要。
                     要求：100 到 200 字，突出主题、技术价值和读者收益，不要输出解释说明。
@@ -159,8 +187,42 @@ public class AiWritingService implements IAiWritingService {
                     当前正文：
                     %s
 
-                    额外参数：%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getContentMd()), extraParams);
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+            case GENERATE_TITLE -> """
+                    你是一个高级技术写作 Agent。请基于当前草稿生成 3 到 5 个候选标题。
+                    要求：吸引技术读者、突出文章核心价值、简洁有力，每个标题一行，不要输出解释说明。
+
+                    标题：%s
+                    摘要：%s
+                    当前正文：
+                    %s
+
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+            case GENERATE_TAGS -> """
+                    你是一个高级技术写作 Agent。请分析当前草稿内容，生成 3 到 5 个相关技术标签。
+                    要求：标签应覆盖主要技术栈和主题，用英文逗号分隔，不要输出解释说明。
+
+                    标题：%s
+                    摘要：%s
+                    当前正文：
+                    %s
+
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+            case QUALITY_CHECK -> """
+                    你是一个高级技术写作 Agent。请对当前草稿进行发布质量检查。
+                    检查项：拼写错误、语法问题、结构完整性、代码正确性、技术准确性。
+                    要求：逐项列出问题及改进建议，如无问题则输出"质量检查通过"，不要输出多余解释。
+
+                    标题：%s
+                    摘要：%s
+                    当前正文：
+                    %s
+
+                    额外参数：%s%s
+                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
         };
     }
 

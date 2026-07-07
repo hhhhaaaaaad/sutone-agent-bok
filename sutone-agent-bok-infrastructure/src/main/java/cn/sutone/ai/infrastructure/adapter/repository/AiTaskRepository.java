@@ -8,6 +8,9 @@ import cn.sutone.ai.infrastructure.dao.IAiTaskDao;
 import cn.sutone.ai.infrastructure.dao.po.AiTaskPO;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 /**
  * AI 任务仓储实现
  */
@@ -39,6 +42,13 @@ public class AiTaskRepository implements IAiTaskRepository {
     @Override
     public AiTaskEntity queryById(Long taskId) {
         return toEntity(aiTaskDao.queryById(taskId));
+    }
+
+    @Override
+    public List<AiTaskEntity> queryLatestByDraftId(Long draftId, int limit) {
+        return aiTaskDao.queryByDraftId(draftId, limit).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
     }
 
     private AiTaskPO toPO(AiTaskEntity entity) {

@@ -7,6 +7,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 /**
  * AI 任务 DAO
  */
@@ -38,4 +40,13 @@ public interface IAiTaskDao {
             WHERE id = #{taskId} AND is_deleted = 0
             """)
     AiTaskPO queryById(@Param("taskId") Long taskId);
+
+    @Select("""
+            SELECT id, user_id, draft_id, task_type, prompt_payload, response_content, status, error_msg, create_time, update_time, is_deleted
+            FROM ai_task
+            WHERE draft_id = #{draftId} AND is_deleted = 0
+            ORDER BY create_time DESC
+            LIMIT #{limit}
+            """)
+    List<AiTaskPO> queryByDraftId(@Param("draftId") Long draftId, @Param("limit") int limit);
 }

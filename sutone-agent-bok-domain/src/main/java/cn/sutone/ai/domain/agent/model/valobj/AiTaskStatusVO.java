@@ -8,6 +8,7 @@ import lombok.Getter;
 @Getter
 public enum AiTaskStatusVO {
 
+    PENDING(3, "待处理"),
     RUNNING(0, "生成中"),
     SUCCESS(1, "已完成"),
     FAILED(2, "生成失败");
