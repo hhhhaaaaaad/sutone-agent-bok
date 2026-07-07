@@ -47,6 +47,13 @@ public class ArticleEntity {
                 .build();
     }
 
+    public void updateFromDraft(DraftEntity draftEntity) {
+        this.title = draftEntity.getTitle();
+        this.contentMd = draftEntity.getContentMd();
+        this.summary = draftEntity.getSummary();
+        this.coverUrl = draftEntity.getCoverUrl();
+    }
+
     public void offline() {
         if (ArticleStatusVO.OFFLINE == this.status) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "文章已经处于下线状态");
@@ -65,5 +72,12 @@ public class ArticleEntity {
             return 0;
         }
         return contentMd.trim().length();
+    }
+
+    public void updateMeta(List<String> tags) {
+        if (null != meta) {
+            meta.updateTags(tags);
+            meta.updateWordCount(countWords(this.contentMd));
+        }
     }
 }

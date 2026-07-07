@@ -23,12 +23,31 @@ public interface IArticleDao {
             """)
     int insert(ArticlePO articlePO);
 
+    @Insert("""
+            UPDATE article
+            SET title = #{title},
+                content_md = #{contentMd},
+                summary = #{summary},
+                cover_url = #{coverUrl},
+                status = #{status}
+            WHERE id = #{id}
+            """)
+    int update(ArticlePO articlePO);
+
     @Select("""
             SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
             FROM article
             WHERE id = #{articleId} AND is_deleted = 0
             """)
     ArticlePO queryByArticleId(@Param("articleId") Long articleId);
+
+    @Select("""
+            SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
+            FROM article
+            WHERE draft_id = #{draftId} AND is_deleted = 0
+            LIMIT 1
+            """)
+    ArticlePO queryByDraftId(@Param("draftId") Long draftId);
 
     @Select("""
             SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time

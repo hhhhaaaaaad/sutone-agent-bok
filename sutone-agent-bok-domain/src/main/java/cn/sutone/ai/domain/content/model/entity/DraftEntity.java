@@ -66,6 +66,14 @@ public class DraftEntity {
         this.updateTime = LocalDateTime.now();
     }
 
+    public void revertToEditable() {
+        if (DraftStatusVO.PUBLISHED != this.status) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "仅已发布草稿可回退编辑");
+        }
+        this.status = DraftStatusVO.EDITING;
+        this.updateTime = LocalDateTime.now();
+    }
+
     public void checkEditable() {
         if (DraftStatusVO.EDITING != this.status) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "当前草稿状态不允许继续编辑");

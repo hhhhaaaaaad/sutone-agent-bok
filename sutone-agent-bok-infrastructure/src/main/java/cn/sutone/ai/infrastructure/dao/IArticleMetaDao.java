@@ -32,4 +32,12 @@ public interface IArticleMetaDao {
             WHERE article_id = #{articleId}
             """)
     int increaseViewCount(@Param("articleId") Long articleId);
+
+    @Update("""
+            UPDATE article_meta
+            SET word_count = #{wordCount},
+                tags = #{tags}
+            WHERE article_id = #{articleId}
+            """)
+    int updateByArticleId(ArticleMetaPO articleMetaPO);
 }

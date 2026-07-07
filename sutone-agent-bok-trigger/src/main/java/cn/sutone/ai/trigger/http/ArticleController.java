@@ -5,6 +5,7 @@ import cn.sutone.ai.api.dto.PageResponseDTO;
 import cn.sutone.ai.api.dto.article.*;
 import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
+import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.IArticleDomainService;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
 import cn.sutone.ai.types.enums.ResponseCode;
@@ -97,6 +98,27 @@ public class ArticleController implements IArticleService {
                     .build();
         } catch (Exception e) {
             log.error("查询文章详情失败 articleId:{}", articleId, e);
+            return fail(e);
+        }
+    }
+
+    @PostMapping("articles/{articleId}/revert-to-draft")
+    @Override
+    public Response<RevertToDraftResponseDTO> revertToDraft(@PathVariable Long articleId) {
+        try {
+            DraftEntity draft = publishDomainService.revertToDraft(DEFAULT_USER_ID, articleId);
+
+            return Response.<RevertToDraftResponseDTO>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info(ResponseCode.SUCCESS.getInfo())
+                    .data(RevertToDraftResponseDTO.builder()
+                            .draftId(draft.getDraftId())
+                            .status(draft.getStatus().getCode())
+                            .statusDesc(draft.getStatus().getDesc())
+                            .build())
+                    .build();
+        } catch (Exception e) {
+            log.error("回退草稿编辑失败 articleId:{}", articleId, e);
             return fail(e);
         }
     }

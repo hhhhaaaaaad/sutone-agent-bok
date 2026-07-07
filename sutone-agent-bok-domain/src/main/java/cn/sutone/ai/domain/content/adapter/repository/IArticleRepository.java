@@ -13,7 +13,11 @@ public interface IArticleRepository {
 
     Long saveArticle(ArticleEntity articleEntity);
 
+    Long updateArticle(ArticleEntity articleEntity);
+
     ArticleEntity queryArticleById(Long articleId);
+
+    ArticleEntity queryArticleByDraftId(Long draftId);
 
     List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
 

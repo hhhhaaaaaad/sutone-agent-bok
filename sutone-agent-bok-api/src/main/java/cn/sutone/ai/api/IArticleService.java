@@ -14,4 +14,6 @@ public interface IArticleService {
     Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(Integer pageNo, Integer pageSize);
 
     Response<ArticleDetailResponseDTO> queryArticleDetail(Long articleId);
+
+    Response<RevertToDraftResponseDTO> revertToDraft(Long articleId);
 }
