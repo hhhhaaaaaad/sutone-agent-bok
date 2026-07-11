@@ -133,11 +133,14 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
      */
     @GetMapping(value = "ai-writing/task/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseBodyEmitter stream(@RequestParam Long taskId) {
-        ResponseBodyEmitter emitter = new ResponseBodyEmitter(5 * 60 * 1000L);
+        ResponseBodyEmitter emitter = new ResponseBodyEmitter(10 * 60 * 1000L);
         AtomicBoolean completed = new AtomicBoolean(false);
 
         emitter.onCompletion(() -> completed.set(true));
-        emitter.onTimeout(() -> completed.set(true));
+        emitter.onTimeout(() -> {
+            completed.set(true);
+            log.warn("AI 写作 SSE 连接超时 taskId:{}", taskId);
+        });
 
         CompletableFuture.runAsync(() -> {
             try {

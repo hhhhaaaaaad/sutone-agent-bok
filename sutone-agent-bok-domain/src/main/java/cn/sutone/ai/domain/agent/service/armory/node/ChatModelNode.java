@@ -52,9 +52,13 @@ public class ChatModelNode extends AbstractArmorySupport {
 
         if (null != toolMcpList && !toolMcpList.isEmpty()) {
             for (AiAgentConfigTableVO.Module.ChatModel.ToolMcp toolMcp : toolMcpList) {
-                TooMcpCreateService tooMcpCreateService = defaultMcpClientFactory.getTooMcpCreateService(toolMcp);
-                ToolCallback[] toolCallbacks = tooMcpCreateService.buildToolCallback(toolMcp);
-                toolCallbackList.addAll(List.of(toolCallbacks));
+                try {
+                    TooMcpCreateService tooMcpCreateService = defaultMcpClientFactory.getTooMcpCreateService(toolMcp);
+                    ToolCallback[] toolCallbacks = tooMcpCreateService.buildToolCallback(toolMcp);
+                    toolCallbackList.addAll(List.of(toolCallbacks));
+                } catch (Exception e) {
+                    log.warn("MCP 工具 [{}] 初始化失败，跳过: {}", toolMcp.getSse() != null ? toolMcp.getSse().getName() : "unknown", e.getMessage());
+                }
             }
         }
 

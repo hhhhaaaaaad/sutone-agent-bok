@@ -7,27 +7,47 @@ import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeVO;
 import cn.sutone.ai.domain.agent.service.IAiWritingService;
 import cn.sutone.ai.domain.agent.service.IChatService;
+import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownBlockRenderer;
+import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownNormalizer;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import com.google.adk.events.Event;
 import io.reactivex.rxjava3.core.Flowable;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * AI 写作服务实现
  */
+@Slf4j
 @Service
 public class AiWritingService implements IAiWritingService {
 
     private static final String WRITING_AGENT_ID = "300002";
+
+    // 与 agent-writing.yml 中 agents[].name 严格对齐
+    private static final String AUTHOR_ANALYST = "agent_writing_analyst";
+    private static final String AUTHOR_GENERATOR = "agent_writing_generator";
+    private static final String AUTHOR_REVIEWER = "agent_writing_reviewer";
+
+    private static final Map<String, String> AUTHOR_PHASE_MAP = Map.of(
+            AUTHOR_ANALYST, "analyzing",
+            AUTHOR_GENERATOR, "generating",
+            AUTHOR_REVIEWER, "reviewing"
+    );
+
+    private static final Map<String, String> PHASE_LABEL_MAP = Map.of(
+            "analyzing", "正在分析草稿上下文...",
+            "generating", "正在生成写作内容...",
+            "reviewing", "正在进行质量审查..."
+    );
 
     private final IChatService chatService;
     private final IAiTaskRepository aiTaskRepository;
@@ -72,25 +92,64 @@ public class AiWritingService implements IAiWritingService {
 
         String agentId = resolveAgentId();
         String sessionId = chatService.createSession(agentId, String.valueOf(userId));
+        // reviewer 的最终内容（块渲染后 / 自由文本原样），供落库前统一规范化
         StringBuilder responseBuilder = new StringBuilder();
-
-        eventConsumer.accept(statusEvent("正在分析草稿上下文..."));
-        eventConsumer.accept(statusEvent("正在调用 Agent 写作能力..."));
+        // reviewer 跨 partial 事件的行装配缓冲，只处理完整行，尾部残行留待后续或收尾 flush
+        StringBuilder reviewerLineBuffer = new StringBuilder();
 
         try {
             Flowable<Event> events = chatService.handleMessageStream(agentId, String.valueOf(userId), sessionId, task.getPromptPayload());
+            String[] currentPhase = {null};
             events.blockingForEach(event -> {
                 if (!event.functionCalls().isEmpty() || !event.functionResponses().isEmpty()) {
                     return;
+                }
+                String author = event.author();
+                // phase 检测必须在空内容过滤之前：reviewer 会发空 parts 事件传递状态变更
+                String newPhase = AUTHOR_PHASE_MAP.getOrDefault(author, "thinking");
+                if (!Objects.equals(newPhase, currentPhase[0])) {
+                    currentPhase[0] = newPhase;
+                    String label = PHASE_LABEL_MAP.getOrDefault(newPhase, "思考中...");
+                    eventConsumer.accept(statusEvent(newPhase, label));
                 }
                 String content = event.stringifyContent();
                 if (null == content || content.isBlank()) {
                     return;
                 }
-                responseBuilder.append(content);
-                eventConsumer.accept(tokenEvent(content));
+                // analyst 仅用于阶段展示，不推 token、不进最终结果，避免分析文字污染预览与落库
+                if (AUTHOR_ANALYST.equals(author)) {
+                    return;
+                }
+                // generator：自由文本初稿，直接推 token 作前端预览，不落库
+                if (!AUTHOR_REVIEWER.equals(author)) {
+                    eventConsumer.accept(tokenEvent(newPhase, content));
+                    return;
+                }
+                // reviewer：终稿。按行装配，逐行识别「结构化块 JSON」或「自由文本」，
+                // 块 -> MarkdownBlockRenderer 确定性渲染（层四）；文本 -> 原样累积、收尾统一 AST 规范化（层二兜底）
+                boolean isPartial = event.partial().orElse(false);
+                reviewerLineBuffer.append(content);
+                if (isPartial && reviewerLineBuffer.indexOf("\n") < 0) {
+                    return;
+                }
+                String accumulated = reviewerLineBuffer.toString();
+                String[] lines = accumulated.split("\n", -1);
+                int processUpTo = isPartial ? lines.length - 1 : lines.length;
+                reviewerLineBuffer.setLength(0);
+                if (isPartial && lines.length > 0 && !lines[lines.length - 1].isEmpty()) {
+                    reviewerLineBuffer.append(lines[lines.length - 1]);
+                }
+                for (int i = 0; i < processUpTo; i++) {
+                    consumeReviewerLine(newPhase, lines[i], responseBuilder, eventConsumer);
+                }
             });
-            markSuccess(task, responseBuilder.toString());
+            // flush reviewer 残留缓冲
+            if (reviewerLineBuffer.length() > 0) {
+                consumeReviewerLine("reviewing", reviewerLineBuffer.toString(), responseBuilder, eventConsumer);
+            }
+            String formattedContent = formatMarkdown(responseBuilder.toString());
+            markSuccess(task, formattedContent);
+            eventConsumer.accept(resultEvent(formattedContent));
             eventConsumer.accept(doneEvent());
         } catch (Exception e) {
             String errorMsg = e.getMessage();
@@ -99,6 +158,33 @@ public class AiWritingService implements IAiWritingService {
             }
             markFailed(task, errorMsg);
             eventConsumer.accept(errorEvent(errorMsg));
+        }
+    }
+
+    /**
+     * 消费 reviewer 的一行输出：结构化块走确定性渲染，自由文本原样累积。
+     * 渲染结果既累积进最终落库内容，也作为 token 推给前端预览。
+     */
+    private void consumeReviewerLine(String phase, String line, StringBuilder responseBuilder,
+                                     Consumer<AiWritingStreamEventVO> eventConsumer) {
+        if (null == line) {
+            return;
+        }
+        // 保留空行作为段落分隔符（AST 需要空行来识别段落边界）
+        if (line.isBlank()) {
+            responseBuilder.append("\n");
+            return;
+        }
+        if (MarkdownBlockRenderer.isBlockLine(line)) {
+            String fragment = MarkdownBlockRenderer.renderLine(line);
+            if (null == fragment || fragment.isEmpty()) {
+                return;
+            }
+            responseBuilder.append(fragment).append("\n\n");
+            eventConsumer.accept(tokenEvent(phase, fragment + "\n\n", line.trim()));
+        } else {
+            responseBuilder.append(line).append("\n");
+            eventConsumer.accept(tokenEvent(phase, line + "\n"));
         }
     }
 
@@ -139,11 +225,14 @@ public class AiWritingService implements IAiWritingService {
         String extraParams = null == promptParams || promptParams.isEmpty() ? "{}" : String.valueOf(promptParams);
         String customInstruction = null == promptParams ? null : (String) promptParams.get("customInstruction");
         String selectedText = null == promptParams ? null : (String) promptParams.get("selectedText");
+        String formatInstruction = null == promptParams ? null : (String) promptParams.get("formatInstruction");
         String customSuffix = null == customInstruction || customInstruction.isBlank() ? "" : "\n\n用户额外指令：%s".formatted(customInstruction);
+        String formatHardRule = null == formatInstruction || formatInstruction.isBlank() ? "" : "\n\n【格式硬约束 - 必须遵守】\n%s".formatted(formatInstruction);
         return switch (taskType) {
             case GENERATE_OUTLINE -> """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文，为这篇技术文章生成 Markdown 大纲。
                     要求：结构清晰、层级合理、适合技术社区文章，不要输出解释说明，只输出大纲。
+                    %s
 
                     标题：%s
                     摘要：%s
@@ -151,10 +240,12 @@ public class AiWritingService implements IAiWritingService {
                     %s
 
                     额外参数：%s%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+                    """.formatted(formatHardRule, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
             case GENERATE_BODY -> """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文续写正文，输出 Markdown 内容。
                     要求：保持技术准确、表达自然、结构连贯，不要重复已有正文，不要输出解释说明。
+                    注意：不要输出文章标题（# xxx），标题已在草稿中，直接从 ## 或正文内容开始写。
+                    %s
 
                     标题：%s
                     摘要：%s
@@ -162,14 +253,16 @@ public class AiWritingService implements IAiWritingService {
                     %s
 
                     额外参数：%s%s
-                    """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
+                    """.formatted(formatHardRule, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
             case POLISH_TEXT -> {
                 boolean hasSelectedText = null != selectedText && !selectedText.isBlank();
                 String body = hasSelectedText ? selectedText : nullToEmpty(draft.getContentMd());
-                String desc = hasSelectedText ? "请对以下选中文本进行润色改写，只输出改写结果，不要输出解释说明。"
-                        : "请对当前草稿进行润色改写，提升表达质量、技术严谨性和阅读流畅度。要求：保留原意，输出完整 Markdown 改写结果，不要输出解释说明。";
+                String desc = hasSelectedText
+                    ? "请对以下选中文本进行润色改写，只输出改写结果，不要输出解释说明。不要输出文章标题（# xxx）。"
+                    : "请对当前草稿进行智能处理：\n- 如果内容是**大纲/提纲**（标题多、正文少），请将每个章节展开为完整正文段落，保留原目录结构；\n- 如果已是完整正文，则优化表达质量和阅读流畅度。\n要求：不要输出解释说明。不要输出文章标题（# xxx），标题已在草稿中。";
                 yield """
                     你是一个高级技术写作 Agent。%s
+                    %s
 
                     标题：%s
                     摘要：%s
@@ -177,7 +270,7 @@ public class AiWritingService implements IAiWritingService {
                     %s
 
                     额外参数：%s%s
-                    """.formatted(desc, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), body, extraParams, customSuffix);
+                    """.formatted(desc, formatHardRule, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), body, extraParams, customSuffix);
             }
             case SUMMARIZE -> """
                     你是一个高级技术写作 Agent。请基于当前草稿生成一段适合发布页展示的文章摘要。
@@ -230,20 +323,46 @@ public class AiWritingService implements IAiWritingService {
         return null == value ? "" : value;
     }
 
-    private AiWritingStreamEventVO statusEvent(String content) {
-        return buildEvent("thinking", "status", content);
+    private AiWritingStreamEventVO statusEvent(String phase, String content) {
+        return buildEvent(phase, "status", content);
     }
 
-    private AiWritingStreamEventVO tokenEvent(String content) {
-        return buildEvent("generating", "token", content);
+    private AiWritingStreamEventVO tokenEvent(String phase, String content) {
+        return buildEvent(phase, "token", content);
+    }
+
+    private AiWritingStreamEventVO tokenEvent(String phase, String content, String raw) {
+        return AiWritingStreamEventVO.builder()
+                .phase(phase)
+                .chunk(AiWritingStreamEventVO.Chunk.builder()
+                        .type("token")
+                        .content(content)
+                        .raw(raw)
+                        .build())
+                .build();
     }
 
     private AiWritingStreamEventVO doneEvent() {
         return buildEvent("done", "done", "");
     }
 
+    private AiWritingStreamEventVO resultEvent(String content) {
+        return buildEvent("done", "result", content);
+    }
+
     private AiWritingStreamEventVO errorEvent(String content) {
         return buildEvent("error", "error", content);
+    }
+
+    /**
+     * 规范化 AI 输出的 Markdown。
+     *
+     * <p>层二方案：委托 {@link MarkdownNormalizer} 用 CommonMark 解析成 AST 再重新序列化，
+     * 从根本上避免正则「误切合法标题」与「漏切无穷畸形」的两难。少量结构预处理与行内 LaTeX
+     * 转义修复已收敛进 {@code MarkdownNormalizer.preprocess}，此处不再堆叠正则。</p>
+     */
+    private String formatMarkdown(String raw) {
+        return MarkdownNormalizer.normalize(raw);
     }
 
     private AiWritingStreamEventVO buildEvent(String phase, String type, String content) {

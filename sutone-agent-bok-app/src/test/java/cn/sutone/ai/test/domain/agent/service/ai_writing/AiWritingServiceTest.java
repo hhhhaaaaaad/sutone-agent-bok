@@ -153,8 +153,9 @@ class AiWritingServiceTest {
             when(chatService.queryAiAgentConfigList()).thenReturn(Collections.singletonList(agent));
             when(chatService.createSession(AGENT_ID, String.valueOf(USER_ID))).thenReturn("session-1");
 
-            // 构建一个含文本的真实 Event（functionCalls/functionResponses/stringifyContent 都是 final 方法，无法 mock）
+            // 只有 reviewer 的输出才进入最终结果，故 author 必须为 agent_writing_reviewer
             Event realEvent = Event.builder()
+                    .author("agent_writing_reviewer")
                     .content(Content.fromParts(Part.fromText("生成的内容")))
                     .build();
             when(chatService.handleMessageStream(eq(AGENT_ID), eq(String.valueOf(USER_ID)), eq("session-1"), anyString()))
@@ -169,9 +170,67 @@ class AiWritingServiceTest {
             verify(aiTaskRepository, times(2)).update(any(AiTaskEntity.class));
             // 最终状态应为 SUCCESS
             assertEquals(AiTaskStatusVO.SUCCESS, task.getStatus());
+            // 自由文本经 MarkdownNormalizer 规范化后仍应保留原文本
             assertEquals("生成的内容", task.getResponseContent());
-            // 事件：2 个 status + 1 个 token + 1 个 done
+            // 事件：status + token + result + done
             assertTrue(eventCount.get() >= 4);
+        }
+
+        @Test
+        @DisplayName("analyst 的输出不应进入最终结果")
+        void shouldNotIncludeAnalystOutput() {
+            AiTaskEntity task = pendingTask();
+            when(aiTaskRepository.queryById(TASK_ID)).thenReturn(task);
+            AiAgentConfigTableVO.Agent agent = new AiAgentConfigTableVO.Agent();
+            agent.setAgentId(AGENT_ID);
+            when(chatService.queryAiAgentConfigList()).thenReturn(Collections.singletonList(agent));
+            when(chatService.createSession(AGENT_ID, String.valueOf(USER_ID))).thenReturn("session-1");
+
+            Event analystEvent = Event.builder()
+                    .author("agent_writing_analyst")
+                    .content(Content.fromParts(Part.fromText("这是分析过程，不应落库")))
+                    .build();
+            Event reviewerEvent = Event.builder()
+                    .author("agent_writing_reviewer")
+                    .content(Content.fromParts(Part.fromText("这是终稿")))
+                    .build();
+            when(chatService.handleMessageStream(eq(AGENT_ID), eq(String.valueOf(USER_ID)), eq("session-1"), anyString()))
+                    .thenReturn(Flowable.just(analystEvent, reviewerEvent));
+
+            aiWritingService.generateStream(TASK_ID, USER_ID, event -> { });
+
+            assertEquals(AiTaskStatusVO.SUCCESS, task.getStatus());
+            assertEquals("这是终稿", task.getResponseContent());
+            assertFalse(task.getResponseContent().contains("分析过程"));
+        }
+
+        @Test
+        @DisplayName("reviewer 的结构化块 JSON 应被渲染为标准 Markdown 落库")
+        void shouldRenderStructuredBlocks() {
+            AiTaskEntity task = pendingTask();
+            when(aiTaskRepository.queryById(TASK_ID)).thenReturn(task);
+            AiAgentConfigTableVO.Agent agent = new AiAgentConfigTableVO.Agent();
+            agent.setAgentId(AGENT_ID);
+            when(chatService.queryAiAgentConfigList()).thenReturn(Collections.singletonList(agent));
+            when(chatService.createSession(AGENT_ID, String.valueOf(USER_ID))).thenReturn("session-1");
+
+            String blocks = "{\"type\":\"md_heading\",\"level\":2,\"text\":\"标题\"}\n"
+                    + "{\"type\":\"md_paragraph\",\"text\":\"正文段落\"}\n"
+                    + "{\"type\":\"md_done\"}";
+            Event reviewerEvent = Event.builder()
+                    .author("agent_writing_reviewer")
+                    .content(Content.fromParts(Part.fromText(blocks)))
+                    .build();
+            when(chatService.handleMessageStream(eq(AGENT_ID), eq(String.valueOf(USER_ID)), eq("session-1"), anyString()))
+                    .thenReturn(Flowable.just(reviewerEvent));
+
+            aiWritingService.generateStream(TASK_ID, USER_ID, event -> { });
+
+            assertEquals(AiTaskStatusVO.SUCCESS, task.getStatus());
+            String result = task.getResponseContent();
+            assertTrue(result.contains("## 标题"), "应渲染为二级标题: " + result);
+            assertTrue(result.contains("正文段落"), "应包含段落文本: " + result);
+            assertFalse(result.contains("md_heading"), "不应残留原始 JSON: " + result);
         }
 
         @Test
