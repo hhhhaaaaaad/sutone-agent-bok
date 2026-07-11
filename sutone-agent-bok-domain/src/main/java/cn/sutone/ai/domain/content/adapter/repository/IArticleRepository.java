@@ -1,4 +1,4 @@
-package cn.sutone.ai.domain.content.repository;
+package cn.sutone.ai.domain.content.adapter.repository;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 
@@ -13,11 +13,15 @@ public interface IArticleRepository {
 
     Long saveArticle(ArticleEntity articleEntity);
 
+    Long updateArticle(ArticleEntity articleEntity);
+
     ArticleEntity queryArticleById(Long articleId);
 
-    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
+    ArticleEntity queryArticleByDraftId(Long draftId);
 
-    Integer countArticlePage();
+    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword);
+
+    Integer countArticlePage(Long userId, String keyword);
 
     void increaseViewCount(Long articleId);
 }

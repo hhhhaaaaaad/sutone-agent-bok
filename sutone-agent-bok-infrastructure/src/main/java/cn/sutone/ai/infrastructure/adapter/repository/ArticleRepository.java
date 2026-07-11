@@ -3,7 +3,7 @@ package cn.sutone.ai.infrastructure.adapter.repository;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.ArticleMetaEntity;
 import cn.sutone.ai.domain.content.model.valobj.ArticleStatusVO;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.infrastructure.dao.IArticleDao;
 import cn.sutone.ai.infrastructure.dao.IArticleMetaDao;
 import cn.sutone.ai.infrastructure.dao.po.ArticleMetaPO;
@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 文章仓储实现
@@ -44,6 +45,15 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
+    public Long updateArticle(ArticleEntity articleEntity) {
+        articleDao.update(toArticlePO(articleEntity));
+        if (null != articleEntity.getMeta()) {
+            articleMetaDao.updateByArticleId(toArticleMetaPO(articleEntity.getMeta()));
+        }
+        return articleEntity.getArticleId();
+    }
+
+    @Override
     public ArticleEntity queryArticleById(Long articleId) {
         ArticlePO articlePO = articleDao.queryByArticleId(articleId);
         if (null == articlePO) {
@@ -53,9 +63,19 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
-    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize) {
+    public ArticleEntity queryArticleByDraftId(Long draftId) {
+        ArticlePO articlePO = articleDao.queryByDraftId(draftId);
+        if (null == articlePO) {
+            return null;
+        }
+        return toArticleEntity(articlePO, articleMetaDao.queryByArticleId(articlePO.getId()));
+    }
+
+    @Override
+    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword) {
         int offset = Math.max(pageNo - 1, 0) * pageSize;
-        return articleDao.queryPage(offset, pageSize)
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.queryPage(offset, pageSize, userId, kw)
                 .stream()
                 .map(articlePO -> toArticleEntity(articlePO, articleMetaDao.queryByArticleId(articlePO.getId())))
                 .filter(Objects::nonNull)
@@ -63,8 +83,9 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
-    public Integer countArticlePage() {
-        return articleDao.countPage();
+    public Integer countArticlePage(Long userId, String keyword) {
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.countPage(userId, kw);
     }
 
     @Override
@@ -147,7 +168,11 @@ public class ArticleRepository implements IArticleRepository {
         if (null == tags || tags.isEmpty()) {
             return "";
         }
-        return String.join(",", tags);
+        return tags.stream()
+                .flatMap(tag -> Arrays.stream(tag.split("[，,、\\s]+"))) // 兼容中文逗号/英文逗号/顿号/空格
+                .map(String::trim)
+                .filter(t -> !t.isEmpty())
+                .collect(Collectors.joining(","));
     }
 
     private List<String> splitTags(String tags) {

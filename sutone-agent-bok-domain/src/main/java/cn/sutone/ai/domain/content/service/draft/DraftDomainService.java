@@ -1,7 +1,9 @@
 package cn.sutone.ai.domain.content.service.draft;
 
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
-import cn.sutone.ai.domain.content.repository.IDraftRepository;
+import cn.sutone.ai.domain.content.service.IDraftDomainService;
+import org.springframework.stereotype.Service;
+import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
 import cn.sutone.ai.domain.content.service.command.SaveDraftCommand;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
@@ -11,7 +13,8 @@ import java.util.List;
 /**
  * 草稿领域服务
  */
-public class DraftDomainService {
+@Service
+public class DraftDomainService implements IDraftDomainService {
 
     private final IDraftRepository draftRepository;
 
@@ -51,6 +54,10 @@ public class DraftDomainService {
 
     public List<DraftEntity> queryDraftPage(Long userId, Integer pageNo, Integer pageSize) {
         return draftRepository.queryPage(userId, pageNo, pageSize);
+    }
+
+    public Integer countByUserId(Long userId) {
+        return draftRepository.countByUserId(userId);
     }
 
     public DraftEntity discardDraft(Long draftId, Long userId) {

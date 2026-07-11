@@ -2,4 +2,4 @@ spring:
   config:
     name: sutone-agent-bok-app
   profiles:
-    active: dev
+    active: docker-local

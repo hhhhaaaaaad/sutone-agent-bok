@@ -38,4 +38,12 @@ public class ArticleMetaEntity {
     public void increaseViewCount() {
         this.viewCount = null == this.viewCount ? 1 : this.viewCount + 1;
     }
+
+    public void updateTags(List<String> tags) {
+        this.tags = new ArrayList<>(tags);
+    }
+
+    public void updateWordCount(int wordCount) {
+        this.wordCount = wordCount;
+    }
 }

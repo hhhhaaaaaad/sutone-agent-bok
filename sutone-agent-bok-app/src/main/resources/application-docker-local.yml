@@ -16,6 +16,7 @@ spring:
     import:
       - classpath:agent/agent-draw-io.yml
       - classpath:agent/agent-ppt.yml
+      - classpath:agent/agent-writing.yml
   datasource:
     username: root
     password: 123456
@@ -31,6 +32,14 @@ spring:
       max-lifetime: 1800000
       connection-timeout: 30000
       connection-test-query: SELECT 1
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  secret: ${JWT_SECRET:sutone-agent-bok-jwt-secret-key-2026}
+  expiration: 7200000
 
 logging:
   level:

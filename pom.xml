@@ -8,7 +8,7 @@
     <repository>
       <id>nexus-aliyun</id>
       <name>nexus-aliyun</name>
-      <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+      <url>https://maven.aliyun.com/repository/public</url>
       <releases/>
       <snapshots>
         <enabled>false</enabled>
@@ -225,11 +225,10 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.0</version>
+        <!-- version managed by spring-boot-starter-parent -->
         <configuration>
-          <source>${java.version}</source>
-          <target>${java.version}</target>
           <encoding>${project.build.sourceEncoding}</encoding>
+          <parameters>true</parameters>
         </configuration>
       </plugin>
       <plugin>

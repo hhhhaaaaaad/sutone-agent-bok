@@ -46,7 +46,7 @@ public interface IDraftDao {
     @Select("""
             SELECT id, user_id, title, content_md, summary, cover_url, status, is_deleted, create_time, update_time
             FROM draft
-            WHERE user_id = #{userId} AND is_deleted = 0
+            WHERE user_id = #{userId} AND is_deleted = 0 AND status != 1
             ORDER BY update_time DESC
             LIMIT #{pageSize} OFFSET #{offset}
             """)
@@ -55,7 +55,7 @@ public interface IDraftDao {
     @Select("""
             SELECT COUNT(1)
             FROM draft
-            WHERE user_id = #{userId} AND is_deleted = 0
+            WHERE user_id = #{userId} AND is_deleted = 0 AND status != 1
             """)
     Integer countByUserId(@Param("userId") Long userId);
 }

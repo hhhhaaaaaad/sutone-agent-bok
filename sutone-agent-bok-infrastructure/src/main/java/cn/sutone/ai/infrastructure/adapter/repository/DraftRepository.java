@@ -2,7 +2,7 @@ package cn.sutone.ai.infrastructure.adapter.repository;
 
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.model.valobj.DraftStatusVO;
-import cn.sutone.ai.domain.content.repository.IDraftRepository;
+import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
 import cn.sutone.ai.infrastructure.dao.IDraftDao;
 import cn.sutone.ai.infrastructure.dao.po.DraftPO;
 import org.springframework.stereotype.Repository;

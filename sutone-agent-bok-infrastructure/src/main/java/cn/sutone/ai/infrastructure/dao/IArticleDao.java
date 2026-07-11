@@ -23,6 +23,17 @@ public interface IArticleDao {
             """)
     int insert(ArticlePO articlePO);
 
+    @Insert("""
+            UPDATE article
+            SET title = #{title},
+                content_md = #{contentMd},
+                summary = #{summary},
+                cover_url = #{coverUrl},
+                status = #{status}
+            WHERE id = #{id}
+            """)
+    int update(ArticlePO articlePO);
+
     @Select("""
             SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
             FROM article
@@ -33,16 +44,33 @@ public interface IArticleDao {
     @Select("""
             SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
             FROM article
-            WHERE is_deleted = 0
-            ORDER BY publish_time DESC
-            LIMIT #{pageSize} OFFSET #{offset}
+            WHERE draft_id = #{draftId} AND is_deleted = 0
+            LIMIT 1
             """)
-    List<ArticlePO> queryPage(@Param("offset") Integer offset, @Param("pageSize") Integer pageSize);
+    ArticlePO queryByDraftId(@Param("draftId") Long draftId);
 
     @Select("""
+            <script>
+            SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
+            FROM article
+            WHERE is_deleted = 0
+            <if test="userId != null"> AND author_id = #{userId}</if>
+            <if test="keyword != null and keyword != ''"> AND (title LIKE CONCAT('%', #{keyword}, '%') OR title REGEXP #{keyword})</if>
+            ORDER BY publish_time DESC
+            LIMIT #{pageSize} OFFSET #{offset}
+            </script>
+            """)
+    List<ArticlePO> queryPage(@Param("offset") Integer offset, @Param("pageSize") Integer pageSize,
+                               @Param("userId") Long userId, @Param("keyword") String keyword);
+
+    @Select("""
+            <script>
             SELECT COUNT(1)
             FROM article
             WHERE is_deleted = 0
+            <if test="userId != null"> AND author_id = #{userId}</if>
+            <if test="keyword != null and keyword != ''"> AND (title LIKE CONCAT('%', #{keyword}, '%') OR title REGEXP #{keyword})</if>
+            </script>
             """)
-    Integer countPage();
+    Integer countPage(@Param("userId") Long userId, @Param("keyword") String keyword);
 }

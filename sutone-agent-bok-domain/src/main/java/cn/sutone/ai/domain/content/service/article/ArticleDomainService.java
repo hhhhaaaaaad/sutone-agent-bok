@@ -1,7 +1,9 @@
 package cn.sutone.ai.domain.content.service.article;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
-import cn.sutone.ai.domain.content.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.service.IArticleDomainService;
+import org.springframework.stereotype.Service;
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 
@@ -10,7 +12,8 @@ import java.util.List;
 /**
  * 文章领域服务
  */
-public class ArticleDomainService {
+@Service
+public class ArticleDomainService implements IArticleDomainService {
 
     private final IArticleRepository articleRepository;
 
@@ -28,7 +31,13 @@ public class ArticleDomainService {
         return articleEntity;
     }
 
-    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize) {
-        return articleRepository.queryArticlePage(pageNo, pageSize);
+    @Override
+    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword) {
+        return articleRepository.queryArticlePage(pageNo, pageSize, userId, keyword);
+    }
+
+    @Override
+    public Integer countArticles(Long userId, String keyword) {
+        return articleRepository.countArticlePage(userId, keyword);
     }
 }

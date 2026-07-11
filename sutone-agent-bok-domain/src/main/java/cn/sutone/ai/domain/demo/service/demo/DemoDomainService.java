@@ -1,5 +1,6 @@
-package cn.sutone.ai.domain.demo.service;
+package cn.sutone.ai.domain.demo.service.demo;
 
+import cn.sutone.ai.domain.demo.service.IDemoDomainService;
 import cn.sutone.ai.domain.demo.adapter.repository.IDemoRepository;
 import cn.sutone.ai.domain.demo.model.aggregate.DemoAggregate;
 import cn.sutone.ai.domain.demo.model.entity.DemoEntity;
@@ -8,7 +9,7 @@ import cn.sutone.ai.domain.demo.model.entity.DemoRecordEntity;
 /**
  * Demo 领域服务
  */
-public class DemoDomainService {
+public class DemoDomainService implements IDemoDomainService {
 
     private final IDemoRepository demoRepository;
 

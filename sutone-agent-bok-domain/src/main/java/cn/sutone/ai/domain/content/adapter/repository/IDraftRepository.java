@@ -1,4 +1,4 @@
-package cn.sutone.ai.domain.content.repository;
+package cn.sutone.ai.domain.content.adapter.repository;
 
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 
