@@ -31,7 +31,13 @@ public class ArticleDomainService implements IArticleDomainService {
         return articleEntity;
     }
 
-    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize) {
-        return articleRepository.queryArticlePage(pageNo, pageSize);
+    @Override
+    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword) {
+        return articleRepository.queryArticlePage(pageNo, pageSize, userId, keyword);
+    }
+
+    @Override
+    public Integer countArticles(Long userId, String keyword) {
+        return articleRepository.countArticlePage(userId, keyword);
     }
 }

@@ -7,6 +7,7 @@ import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.IDraftDomainService;
 import cn.sutone.ai.domain.content.service.command.SaveDraftCommand;
+import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import jakarta.annotation.Resource;
@@ -26,7 +27,6 @@ import java.util.List;
 public class ContentDraftController implements IContentDraftService {
 
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final Long DEFAULT_USER_ID = 1L;
 
     @Resource
     private IDraftDomainService draftDomainService;
@@ -43,7 +43,7 @@ public class ContentDraftController implements IContentDraftService {
                     .coverUrl(requestDTO.getCoverUrl())
                     .build();
 
-            DraftEntity draft = draftDomainService.saveDraft(DEFAULT_USER_ID, command);
+            DraftEntity draft = draftDomainService.saveDraft(AuthUtil.getCurrentUserId(), command);
 
             return Response.<SaveDraftResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -66,7 +66,7 @@ public class ContentDraftController implements IContentDraftService {
     @Override
     public Response<DraftDetailResponseDTO> queryDraftDetail(@PathVariable Long draftId) {
         try {
-            DraftEntity draft = draftDomainService.queryDraftDetail(draftId, DEFAULT_USER_ID);
+            DraftEntity draft = draftDomainService.queryDraftDetail(draftId, AuthUtil.getCurrentUserId());
             return Response.<DraftDetailResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
@@ -84,16 +84,18 @@ public class ContentDraftController implements IContentDraftService {
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize) {
         try {
-            List<DraftEntity> drafts = draftDomainService.queryDraftPage(DEFAULT_USER_ID, pageNo, pageSize);
+            Long userId = AuthUtil.getCurrentUserId();
+            List<DraftEntity> drafts = draftDomainService.queryDraftPage(userId, pageNo, pageSize);
             List<DraftPageItemResponseDTO> items = drafts.stream()
                     .map(this::toPageItemDTO)
                     .toList();
+            Integer total = draftDomainService.countByUserId(userId);
 
             return Response.<PageResponseDTO<DraftPageItemResponseDTO>>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(PageResponseDTO.<DraftPageItemResponseDTO>builder()
-                            .total(items.size())
+                            .total(total != null ? total : 0)
                             .pageNo(pageNo)
                             .pageSize(pageSize)
                             .list(items)
@@ -109,7 +111,7 @@ public class ContentDraftController implements IContentDraftService {
     @Override
     public Response<DiscardDraftResponseDTO> discardDraft(@PathVariable Long draftId) {
         try {
-            DraftEntity draft = draftDomainService.discardDraft(draftId, DEFAULT_USER_ID);
+            DraftEntity draft = draftDomainService.discardDraft(draftId, AuthUtil.getCurrentUserId());
             return Response.<DiscardDraftResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())

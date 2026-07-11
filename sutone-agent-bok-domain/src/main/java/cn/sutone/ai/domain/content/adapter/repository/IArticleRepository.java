@@ -19,9 +19,9 @@ public interface IArticleRepository {
 
     ArticleEntity queryArticleByDraftId(Long draftId);
 
-    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
+    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword);
 
-    Integer countArticlePage();
+    Integer countArticlePage(Long userId, String keyword);
 
     void increaseViewCount(Long articleId);
 }

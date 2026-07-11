@@ -11,7 +11,7 @@ public interface IArticleService {
 
     Response<PublishArticleResponseDTO> publishArticle(PublishArticleRequestDTO requestDTO);
 
-    Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(Integer pageNo, Integer pageSize);
+    Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword);
 
     Response<ArticleDetailResponseDTO> queryArticleDetail(Long articleId);
 

@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.IArticleDomainService;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
+import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import jakarta.annotation.Resource;
@@ -28,7 +29,6 @@ import java.util.List;
 public class ArticleController implements IArticleService {
 
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final Long DEFAULT_USER_ID = 1L;
 
     @Resource
     private IPublishDomainService publishDomainService;
@@ -41,7 +41,7 @@ public class ArticleController implements IArticleService {
     public Response<PublishArticleResponseDTO> publishArticle(@RequestBody PublishArticleRequestDTO requestDTO) {
         try {
             List<String> tags = requestDTO.getTags() != null ? requestDTO.getTags() : Collections.emptyList();
-            ArticleEntity article = publishDomainService.publish(DEFAULT_USER_ID, requestDTO.getDraftId(), tags);
+            ArticleEntity article = publishDomainService.publish(AuthUtil.getCurrentUserId(), requestDTO.getDraftId(), tags);
 
             return Response.<PublishArticleResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -63,18 +63,21 @@ public class ArticleController implements IArticleService {
     @Override
     public Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(
             @RequestParam(defaultValue = "1") Integer pageNo,
-            @RequestParam(defaultValue = "10") Integer pageSize) {
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String keyword) {
         try {
-            List<ArticleEntity> articles = articleDomainService.queryArticlePage(pageNo, pageSize);
+            List<ArticleEntity> articles = articleDomainService.queryArticlePage(pageNo, pageSize, userId, keyword);
             List<ArticlePageItemResponseDTO> items = articles.stream()
                     .map(this::toPageItemDTO)
                     .toList();
+            Integer total = articleDomainService.countArticles(userId, keyword);
 
             return Response.<PageResponseDTO<ArticlePageItemResponseDTO>>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
                     .data(PageResponseDTO.<ArticlePageItemResponseDTO>builder()
-                            .total(items.size())
+                            .total(total != null ? total : 0)
                             .pageNo(pageNo)
                             .pageSize(pageSize)
                             .list(items)
@@ -106,7 +109,7 @@ public class ArticleController implements IArticleService {
     @Override
     public Response<RevertToDraftResponseDTO> revertToDraft(@PathVariable Long articleId) {
         try {
-            DraftEntity draft = publishDomainService.revertToDraft(DEFAULT_USER_ID, articleId);
+            DraftEntity draft = publishDomainService.revertToDraft(AuthUtil.getCurrentUserId(), articleId);
 
             return Response.<RevertToDraftResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())

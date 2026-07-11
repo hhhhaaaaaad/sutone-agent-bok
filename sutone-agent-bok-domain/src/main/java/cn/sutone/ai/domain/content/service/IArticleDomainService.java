@@ -11,6 +11,8 @@ public interface IArticleDomainService {
 
     ArticleEntity queryArticleDetail(Long articleId);
 
-    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize);
+    List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword);
+
+    Integer countArticles(Long userId, String keyword);
 
 }

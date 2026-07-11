@@ -18,4 +18,6 @@ public interface IDraftDomainService {
 
     DraftEntity discardDraft(Long draftId, Long userId);
 
+    Integer countByUserId(Long userId);
+
 }

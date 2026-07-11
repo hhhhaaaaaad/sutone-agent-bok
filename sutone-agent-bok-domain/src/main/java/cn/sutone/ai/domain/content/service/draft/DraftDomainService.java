@@ -56,6 +56,10 @@ public class DraftDomainService implements IDraftDomainService {
         return draftRepository.queryPage(userId, pageNo, pageSize);
     }
 
+    public Integer countByUserId(Long userId) {
+        return draftRepository.countByUserId(userId);
+    }
+
     public DraftEntity discardDraft(Long draftId, Long userId) {
         DraftEntity draftEntity = getOwnedDraft(draftId, userId);
         draftEntity.discard();

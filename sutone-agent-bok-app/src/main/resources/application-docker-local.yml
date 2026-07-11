@@ -37,6 +37,10 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+jwt:
+  secret: ${JWT_SECRET:sutone-agent-bok-jwt-secret-key-2026}
+  expiration: 7200000
+
 logging:
   level:
     root: info

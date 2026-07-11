@@ -72,9 +72,10 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
-    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize) {
+    public List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword) {
         int offset = Math.max(pageNo - 1, 0) * pageSize;
-        return articleDao.queryPage(offset, pageSize)
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.queryPage(offset, pageSize, userId, kw)
                 .stream()
                 .map(articlePO -> toArticleEntity(articlePO, articleMetaDao.queryByArticleId(articlePO.getId())))
                 .filter(Objects::nonNull)
@@ -82,8 +83,9 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
-    public Integer countArticlePage() {
-        return articleDao.countPage();
+    public Integer countArticlePage(Long userId, String keyword) {
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.countPage(userId, kw);
     }
 
     @Override

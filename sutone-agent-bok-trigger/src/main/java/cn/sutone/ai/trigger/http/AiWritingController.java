@@ -8,6 +8,7 @@ import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.agent.model.entity.AiTaskEntity;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.service.IAiWritingService;
+import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import com.alibaba.fastjson.JSON;
@@ -34,7 +35,6 @@ import java.util.stream.Collectors;
 public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
 
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final Long DEFAULT_USER_ID = 1L;
 
     @Resource
     private IAiWritingService aiWritingService;
@@ -64,7 +64,7 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
         try {
             log.info("提交 AI 写作任务 draftId:{} taskType:{}", requestDTO.getDraftId(), requestDTO.getTaskType());
             AiTaskEntity task = aiWritingService.submitTask(
-                    DEFAULT_USER_ID,
+                    AuthUtil.getCurrentUserId(),
                     requestDTO.getDraftId(),
                     requestDTO.getTaskType(),
                     requestDTO.getPromptParams()
@@ -100,7 +100,7 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
     @Override
     public Response<AiTaskDetailResponseDTO> queryTaskDetail(@PathVariable Long taskId) {
         try {
-            AiTaskEntity task = aiWritingService.queryTask(taskId, DEFAULT_USER_ID);
+            AiTaskEntity task = aiWritingService.queryTask(taskId, AuthUtil.getCurrentUserId());
             return Response.<AiTaskDetailResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
                     .info(ResponseCode.SUCCESS.getInfo())
@@ -144,7 +144,7 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
 
         CompletableFuture.runAsync(() -> {
             try {
-                aiWritingService.generateStream(taskId, DEFAULT_USER_ID, event -> {
+                aiWritingService.generateStream(taskId, AuthUtil.getCurrentUserId(), event -> {
                     if (completed.get()) {
                         return;
                     }
@@ -177,7 +177,7 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
     public Response<List<AiTaskDetailResponseDTO>> queryTaskList(@RequestParam Long draftId,
                                                                   @RequestParam(defaultValue = "5") int limit) {
         try {
-            List<AiTaskEntity> tasks = aiWritingService.queryTaskList(draftId, DEFAULT_USER_ID, limit);
+            List<AiTaskEntity> tasks = aiWritingService.queryTaskList(draftId, AuthUtil.getCurrentUserId(), limit);
             List<AiTaskDetailResponseDTO> data = tasks.stream()
                     .map(this::toDetailDTO)
                     .collect(Collectors.toList());
