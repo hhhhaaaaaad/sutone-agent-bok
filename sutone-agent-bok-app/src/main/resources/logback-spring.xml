@@ -100,7 +100,13 @@
     <!-- 开发环境：控制台打印 -->
     <springProfile name="dev">
         <logger name="com.nmys.view" level="debug"/>
+        <logger name="com.google.adk.flows.BaseLlmFlow" level="warn"/>
+        <logger name="cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService" level="debug"/>
     </springProfile>
+
+    <!-- 抑制流式 Agent 的逐 token 日志，避免淹没诊断日志 -->
+    <logger name="com.google.adk.flows" level="warn"/>
+    <logger name="cn.sutone.ai.domain.agent.service.ai_writing" level="debug"/>
 
     <root level="info">
         <appender-ref ref="CONSOLE"/>

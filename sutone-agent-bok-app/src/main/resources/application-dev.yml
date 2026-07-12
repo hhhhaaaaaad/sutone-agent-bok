@@ -21,6 +21,7 @@ spring:
 #       - classpath:agent/only-one-agent.yml
        - classpath:agent/agent-draw-io.yml
        - classpath:agent/agent-ppt.yml
+       - classpath:agent/agent-illustration-analysis.yml
        - classpath:agent/agent-writing.yml
   datasource:
     username: root
@@ -50,4 +51,6 @@ mybatis:
 logging:
   level:
     root: info
+    com.google.adk.flows.BaseLlmFlow: warn
+    cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService: debug
   config: classpath:logback-spring.xml

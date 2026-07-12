@@ -19,8 +19,8 @@ public interface IAiTaskDao {
     Long nextTaskId();
 
     @Insert("""
-            INSERT INTO ai_task(id, user_id, draft_id, task_type, prompt_payload, response_content, status, error_msg, is_deleted)
-            VALUES(#{id}, #{userId}, #{draftId}, #{taskType}, #{promptPayload}, #{responseContent}, #{status}, #{errorMsg}, #{isDeleted})
+            INSERT INTO ai_task(id, user_id, draft_id, task_type, prompt_payload, enable_illustration, response_content, status, error_msg, is_deleted)
+            VALUES(#{id}, #{userId}, #{draftId}, #{taskType}, #{promptPayload}, #{enableIllustration}, #{responseContent}, #{status}, #{errorMsg}, #{isDeleted})
             """)
     int insert(AiTaskPO aiTaskPO);
 
@@ -35,14 +35,14 @@ public interface IAiTaskDao {
     int update(AiTaskPO aiTaskPO);
 
     @Select("""
-            SELECT id, user_id, draft_id, task_type, prompt_payload, response_content, status, error_msg, create_time, update_time, is_deleted
+            SELECT id, user_id, draft_id, task_type, prompt_payload, enable_illustration, response_content, status, error_msg, create_time, update_time, is_deleted
             FROM ai_task
             WHERE id = #{taskId} AND is_deleted = 0
             """)
     AiTaskPO queryById(@Param("taskId") Long taskId);
 
     @Select("""
-            SELECT id, user_id, draft_id, task_type, prompt_payload, response_content, status, error_msg, create_time, update_time, is_deleted
+            SELECT id, user_id, draft_id, task_type, prompt_payload, enable_illustration, response_content, status, error_msg, create_time, update_time, is_deleted
             FROM ai_task
             WHERE draft_id = #{draftId} AND is_deleted = 0
             ORDER BY create_time DESC

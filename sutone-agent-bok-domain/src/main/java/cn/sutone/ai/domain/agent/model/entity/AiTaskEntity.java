@@ -25,13 +25,14 @@ public class AiTaskEntity {
     private Long draftId;
     private AiWritingTaskTypeVO taskType;
     private String promptPayload;
+    private Boolean enableIllustration;
     private String responseContent;
     private AiTaskStatusVO status;
     private String errorMsg;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
-    public static AiTaskEntity initPending(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload) {
+    public static AiTaskEntity initPending(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload, Boolean enableIllustration) {
         if (null == userId) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "用户ID不能为空");
         }
@@ -45,6 +46,7 @@ public class AiTaskEntity {
                 .draftId(draftId)
                 .taskType(taskType)
                 .promptPayload(promptPayload)
+                .enableIllustration(null != enableIllustration && enableIllustration)
                 .status(AiTaskStatusVO.PENDING)
                 .createTime(now)
                 .updateTime(now)

@@ -112,6 +112,26 @@ ai:
                   > **关键结论**：合理配置分代比例可减少 Full GC 频率。
                 output-key: draft_content
 
+              - name: agent_writing_illustrator
+                description: 识别正文中适合配图的段落，产出绘图需求描述
+                instruction: |
+                  分析 {draft_content}，判断哪些段落适合配图。你必须只输出 JSON，每行一条，严格遵循以下格式：
+
+                  架构/组件/数据流段落 → architecture
+                  示例：{"type":"illustration_request","anchor":"系统架构设计","diagramType":"architecture","requirement":"画出包含 API 网关、用户服务、订单服务的微服务架构图"}
+
+                  流程/步骤/决策分支段落 → flowchart
+                  示例：{"type":"illustration_request","anchor":"下单流程","diagramType":"flowchart","requirement":"画出从用户登录到支付完成的下单流程图"}
+
+                  时序/请求链路段落 → sequence
+                  示例：{"type":"illustration_request","anchor":"服务间调用","diagramType":"sequence","requirement":"画出客户端→网关→订单服务→支付服务的调用时序图"}
+
+                  无配图需求时只输出一行：
+                  {"type":"illustration_request","none":true}
+
+                  ⚠️ 绝对不要输出 JSON 以外的任何文字、注释或分析。每行 JSON 自成一行，不可跨行。最多 3 条。
+                output-key: illustration_requests
+
               - name: agent_writing_reviewer
                 description: 检查生成内容的 Markdown 格式规范性，修正明显问题后输出完整终稿。
                 instruction: |
@@ -140,7 +160,7 @@ ai:
             agent-workflows:
               - type: sequential
                 name: sequential_writing_process
-                description: 标准技术写作流程：分析草稿与任务 -> 生成内容 -> 检查优化
+                description: 标准技术写作流程：分析草稿 → 生成内容 → 质量审查
                 sub-agents:
                   - agent_writing_analyst
                   - agent_writing_generator

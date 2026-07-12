@@ -72,7 +72,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
             when(aiTaskRepository.nextTaskId()).thenReturn(TASK_ID);
 
-            AiTaskEntity result = aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", Map.of("title", "Java 入门"));
+            AiTaskEntity result = aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", Map.of("title", "Java 入门"), false);
 
             assertNotNull(result);
             assertEquals(TASK_ID, result.getTaskId());
@@ -89,7 +89,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
 
             assertThrows(AppException.class, () ->
-                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", null));
+                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", null, false));
             verify(aiTaskRepository, never()).save(any());
         }
 
@@ -100,7 +100,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
 
             assertThrows(Exception.class, () ->
-                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "INVALID_TYPE", null));
+                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "INVALID_TYPE", null, false));
             verify(aiTaskRepository, never()).save(any());
         }
     }
@@ -268,6 +268,6 @@ class AiWritingServiceTest {
     }
 
     private static AiTaskEntity pendingTask() {
-        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt");
+        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
     }
 }

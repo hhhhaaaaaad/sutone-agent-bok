@@ -22,4 +22,5 @@ public class SubmitAiTaskRequestDTO implements Serializable {
     private Long draftId;
     private String taskType;
     private Map<String, Object> promptParams;
+    private Boolean enableIllustration;
 }
