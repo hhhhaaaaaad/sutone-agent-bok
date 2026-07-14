@@ -21,6 +21,8 @@ public interface IArticleRepository {
 
     List<ArticleEntity> queryArticlePage(Integer pageNo, Integer pageSize, Long userId, String keyword);
 
+    List<ArticleEntity> queryArticlePageCursor(Long cursor, Integer pageSize, Long userId, String keyword);
+
     Integer countArticlePage(Long userId, String keyword);
 
     void increaseViewCount(Long articleId);

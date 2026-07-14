@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.IArticleDomainService;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
+import cn.sutone.ai.domain.content.service.ISocialDomainService;
 import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
@@ -16,8 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * 文章 Controller
@@ -36,6 +36,12 @@ public class ArticleController implements IArticleService {
     @Resource
     private IArticleDomainService articleDomainService;
 
+    @Resource
+    private ISocialDomainService socialService;
+
+    /**
+     * 发布文章
+     */
     @PostMapping("articles/publish")
     @Override
     public Response<PublishArticleResponseDTO> publishArticle(@RequestBody PublishArticleRequestDTO requestDTO) {
@@ -59,6 +65,9 @@ public class ArticleController implements IArticleService {
         }
     }
 
+    /**
+     * 分页查询文章列表（支持按作者、关键词筛选）
+     */
     @GetMapping("articles/page")
     @Override
     public Response<PageResponseDTO<ArticlePageItemResponseDTO>> queryArticlePage(
@@ -71,6 +80,10 @@ public class ArticleController implements IArticleService {
             List<ArticlePageItemResponseDTO> items = articles.stream()
                     .map(this::toPageItemDTO)
                     .toList();
+            items.forEach(item -> {
+                item.setLikeCount(socialService.getLikeCount(item.getArticleId()));
+                item.setFavoriteCount(socialService.getFavoriteCount(item.getArticleId()));
+            });
             Integer total = articleDomainService.countArticles(userId, keyword);
 
             return Response.<PageResponseDTO<ArticlePageItemResponseDTO>>builder()
@@ -89,6 +102,9 @@ public class ArticleController implements IArticleService {
         }
     }
 
+    /**
+     * 查询文章详情（含实时浏览量、点赞数、收藏数）
+     */
     @GetMapping("articles/{articleId}")
     @Override
     public Response<ArticleDetailResponseDTO> queryArticleDetail(@PathVariable Long articleId) {
@@ -105,6 +121,9 @@ public class ArticleController implements IArticleService {
         }
     }
 
+    /**
+     * 将已发布文章回退为草稿
+     */
     @PostMapping("articles/{articleId}/revert-to-draft")
     @Override
     public Response<RevertToDraftResponseDTO> revertToDraft(@PathVariable Long articleId) {
@@ -126,10 +145,77 @@ public class ArticleController implements IArticleService {
         }
     }
 
+    /**
+     * 热点文章排行榜（按当日浏览量排名，展示 DB 真实浏览量）
+     */
+    @GetMapping("articles/leaderboard")
+    public Response<List<Map<String, Object>>> leaderboard(
+            @RequestParam(defaultValue = "daily") String period,
+            @RequestParam(defaultValue = "10") int n) {
+        try {
+            Map<Long, Double> topN = socialService.getTopN(period, n);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Map.Entry<Long, Double> entry : topN.entrySet()) {
+                try {
+                    ArticleEntity article = articleDomainService.queryArticleDetailReadOnly(entry.getKey());
+                    result.add(Map.of(
+                            "articleId", article.getArticleId(),
+                            "title", article.getTitle(),
+                            "summary", article.getSummary() != null ? article.getSummary() : "",
+                            "heatScore", entry.getValue()
+                    ));
+                } catch (Exception ignored) {
+                    // 文章可能已被删除，跳过
+                }
+            }
+            return Response.<List<Map<String, Object>>>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info(ResponseCode.SUCCESS.getInfo())
+                    .data(result)
+                    .build();
+        } catch (Exception e) {
+            log.error("查询排行榜失败", e);
+            return fail(e);
+        }
+    }
+
+    /**
+     * 游标分页查询文章列表（适用于无限滚动加载更多）
+     */
+    @GetMapping("articles/page/cursor")
+    public Response<Map<String, Object>> queryArticlePageCursor(
+            @RequestParam(defaultValue = "9223372036854775807") Long cursor,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String keyword) {
+        try {
+            List<ArticleEntity> articles = articleDomainService.queryArticlePageCursor(cursor, pageSize, userId, keyword);
+            List<ArticlePageItemResponseDTO> items = articles.stream()
+                    .map(this::toPageItemDTO)
+                    .toList();
+            items.forEach(item -> {
+                item.setLikeCount(socialService.getLikeCount(item.getArticleId()));
+                item.setFavoriteCount(socialService.getFavoriteCount(item.getArticleId()));
+            });
+            Long nextCursor = articles.isEmpty() ? null : articles.get(articles.size() - 1).getArticleId();
+
+            return Response.<Map<String, Object>>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info(ResponseCode.SUCCESS.getInfo())
+                    .data(Map.of("list", items, "nextCursor", nextCursor != null ? nextCursor : ""))
+                    .build();
+        } catch (Exception e) {
+            log.error("查询文章列表(游标)失败", e);
+            return fail(e);
+        }
+    }
+
     private ArticleDetailResponseDTO toDetailDTO(ArticleEntity article) {
         ArticleDetailResponseDTO.ArticleDetailResponseDTOBuilder builder = ArticleDetailResponseDTO.builder()
                 .articleId(article.getArticleId())
                 .authorId(article.getAuthorId())
+                .authorName(article.getAuthorName())
+                .avatarUrl(article.getAvatarUrl())
                 .title(article.getTitle())
                 .summary(article.getSummary())
                 .contentMd(article.getContentMd())
@@ -149,6 +235,8 @@ public class ArticleController implements IArticleService {
         ArticlePageItemResponseDTO.ArticlePageItemResponseDTOBuilder builder = ArticlePageItemResponseDTO.builder()
                 .articleId(article.getArticleId())
                 .authorId(article.getAuthorId())
+                .authorName(article.getAuthorName())
+                .avatarUrl(article.getAvatarUrl())
                 .title(article.getTitle())
                 .summary(article.getSummary())
                 .coverUrl(article.getCoverUrl())
@@ -156,6 +244,8 @@ public class ArticleController implements IArticleService {
 
         if (article.getMeta() != null) {
             builder.viewCount(article.getMeta().getViewCount())
+                    .likeCount(article.getMeta().getLikeCount())
+                    .favoriteCount(article.getMeta().getFavoriteCount())
                     .tags(article.getMeta().getTags());
         }
         return builder.build();

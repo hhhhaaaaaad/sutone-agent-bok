@@ -28,5 +28,7 @@ public class ArticlePageItemResponseDTO implements Serializable {
     private String coverUrl;
     private String publishTime;
     private Integer viewCount;
+    private Integer likeCount;
+    private Integer favoriteCount;
     private List<String> tags;
 }

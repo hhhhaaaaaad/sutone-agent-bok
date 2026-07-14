@@ -9,8 +9,10 @@ import cn.sutone.ai.domain.agent.service.IAiWritingService;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownBlockRenderer;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownNormalizer;
+import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
+import cn.sutone.ai.types.common.RedisKeyConstants;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import com.google.adk.events.Event;
@@ -18,12 +20,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.reactivex.rxjava3.core.Flowable;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -60,24 +65,48 @@ public class AiWritingService implements IAiWritingService {
     private final IChatService chatService;
     private final IAiTaskRepository aiTaskRepository;
     private final DraftDomainService draftDomainService;
+    private final RateLimitService rateLimitService;
+    private final RedissonClient redissonClient;
 
-    public AiWritingService(IChatService chatService, IAiTaskRepository aiTaskRepository, DraftDomainService draftDomainService) {
+    public AiWritingService(IChatService chatService, IAiTaskRepository aiTaskRepository,
+                            DraftDomainService draftDomainService, RateLimitService rateLimitService,
+                            RedissonClient redissonClient) {
         this.chatService = chatService;
         this.aiTaskRepository = aiTaskRepository;
         this.draftDomainService = draftDomainService;
+        this.rateLimitService = rateLimitService;
+        this.redissonClient = redissonClient;
     }
 
     @Override
     public AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams, Boolean enableIllustration) {
-        DraftEntity draft = draftDomainService.queryDraftDetail(draftId, userId);
-        draft.checkEditable();
-        AiWritingTaskTypeVO taskType = AiWritingTaskTypeVO.fromCode(taskTypeCode);
-        String prompt = buildPrompt(draft, taskType, promptParams);
+        if (!rateLimitService.tryAcquire(userId)) {
+            throw new AppException(ResponseCode.E0001.getCode(), "AI 请求过于频繁，请稍后再试");
+        }
 
-        Long taskId = aiTaskRepository.nextTaskId();
-        AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt, enableIllustration);
-        aiTaskRepository.save(task);
-        return task;
+        String lockKey = RedisKeyConstants.AI_TASK_LOCK_PREFIX + userId + ":" + draftId + ":" + taskTypeCode;
+        RLock lock = redissonClient.getLock(lockKey);
+        try {
+            if (!lock.tryLock(0, 5, TimeUnit.SECONDS)) {
+                throw new AppException(ResponseCode.E0001.getCode(), "请勿重复提交，上个任务仍在处理中");
+            }
+            DraftEntity draft = draftDomainService.queryDraftDetail(draftId, userId);
+            draft.checkEditable();
+            AiWritingTaskTypeVO taskType = AiWritingTaskTypeVO.fromCode(taskTypeCode);
+            String prompt = buildPrompt(draft, taskType, promptParams);
+
+            Long taskId = aiTaskRepository.nextTaskId();
+            AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt, enableIllustration);
+            aiTaskRepository.save(task);
+            return task;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AppException(ResponseCode.E0001.getCode(), "系统繁忙，请稍后再试");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     @Override

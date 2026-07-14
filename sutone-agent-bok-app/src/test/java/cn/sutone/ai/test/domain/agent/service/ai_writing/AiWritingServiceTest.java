@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService;
+import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.model.valobj.DraftStatusVO;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
@@ -23,15 +24,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -49,6 +54,15 @@ class AiWritingServiceTest {
     @Mock
     private DraftDomainService draftDomainService;
 
+    @Mock
+    private RateLimitService rateLimitService;
+
+    @Mock
+    private RedissonClient redissonClient;
+
+    @Mock
+    private RLock rLock;
+
     private AiWritingService aiWritingService;
 
     private static final Long USER_ID = 10001L;
@@ -57,8 +71,12 @@ class AiWritingServiceTest {
     private static final String AGENT_ID = "300002";
 
     @BeforeEach
-    void setUp() {
-        aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService);
+    void setUp() throws InterruptedException {
+        aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService,
+                rateLimitService, redissonClient);
+        when(rateLimitService.tryAcquire(anyLong())).thenReturn(true);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
+        when(rLock.tryLock(0, 5, TimeUnit.SECONDS)).thenReturn(true);
     }
 
     @Nested

@@ -89,6 +89,16 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
+    public List<ArticleEntity> queryArticlePageCursor(Long cursor, Integer pageSize, Long userId, String keyword) {
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.queryPageCursor(cursor, pageSize, userId, kw)
+                .stream()
+                .map(articlePO -> toArticleEntity(articlePO, articleMetaDao.queryByArticleId(articlePO.getId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
     public void increaseViewCount(Long articleId) {
         articleMetaDao.increaseViewCount(articleId);
     }
@@ -128,6 +138,8 @@ public class ArticleRepository implements IArticleRepository {
                 .articleId(articlePO.getId())
                 .draftId(articlePO.getDraftId())
                 .authorId(articlePO.getAuthorId())
+                .authorName(articlePO.getAuthorName())
+                .avatarUrl(articlePO.getAvatarUrl())
                 .title(articlePO.getTitle())
                 .contentMd(articlePO.getContentMd())
                 .summary(articlePO.getSummary())

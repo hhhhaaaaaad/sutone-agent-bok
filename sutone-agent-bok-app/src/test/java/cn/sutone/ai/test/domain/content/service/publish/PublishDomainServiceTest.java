@@ -4,6 +4,7 @@ import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.domain.content.adapter.repository.IDraftRepository;
+import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
 import cn.sutone.ai.domain.content.service.publish.PublishDomainService;
 import cn.sutone.ai.types.exception.AppException;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,13 +29,15 @@ class PublishDomainServiceTest {
     private IDraftRepository draftRepository;
     @Mock
     private IArticleRepository articleRepository;
+    @Mock
+    private ArticleCacheService articleCacheService;
 
     private PublishDomainService publishDomainService;
     private static final Long USER_ID = 10001L;
 
     @BeforeEach
     void setUp() {
-        publishDomainService = new PublishDomainService(draftRepository, articleRepository);
+        publishDomainService = new PublishDomainService(draftRepository, articleRepository, articleCacheService);
     }
 
     @Nested

@@ -2,6 +2,7 @@ package cn.sutone.ai.domain.content.service.publish;
 
 import cn.sutone.ai.domain.content.model.aggregate.ContentAggregate;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
+import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
@@ -13,18 +14,18 @@ import cn.sutone.ai.types.exception.AppException;
 
 import java.util.List;
 
-/**
- * 发布领域服务
- */
 @Service
 public class PublishDomainService implements IPublishDomainService {
 
     private final IDraftRepository draftRepository;
     private final IArticleRepository articleRepository;
+    private final ArticleCacheService articleCacheService;
 
-    public PublishDomainService(IDraftRepository draftRepository, IArticleRepository articleRepository) {
+    public PublishDomainService(IDraftRepository draftRepository, IArticleRepository articleRepository,
+                                 ArticleCacheService articleCacheService) {
         this.draftRepository = draftRepository;
         this.articleRepository = articleRepository;
+        this.articleCacheService = articleCacheService;
     }
 
     public ArticleEntity publish(Long userId, Long draftId, List<String> tags) {
@@ -52,6 +53,7 @@ public class PublishDomainService implements IPublishDomainService {
         ArticleEntity articleEntity = contentAggregate.publish(articleId, tags);
         draftRepository.update(contentAggregate.getDraftEntity());
         articleRepository.saveArticle(articleEntity);
+        articleCacheService.evictArticleDetail(articleId);
         return articleEntity;
     }
 
@@ -64,6 +66,7 @@ public class PublishDomainService implements IPublishDomainService {
         // 3. 更新草稿和文章到数据库
         draftRepository.update(draftEntity);
         articleRepository.updateArticle(articleEntity);
+        articleCacheService.evictArticleDetail(articleEntity.getArticleId());
         return articleEntity;
     }
 
