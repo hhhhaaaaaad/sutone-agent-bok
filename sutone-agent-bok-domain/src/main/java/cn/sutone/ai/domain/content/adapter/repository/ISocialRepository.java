@@ -1,5 +1,7 @@
 package cn.sutone.ai.domain.content.adapter.repository;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -9,9 +11,9 @@ public interface ISocialRepository {
 
     // ==================== 点赞 ====================
 
-    void saveLike(Long articleId, Long userId);
+    boolean saveLike(Long articleId, Long userId);
 
-    void removeLike(Long articleId, Long userId);
+    boolean removeLike(Long articleId, Long userId);
 
     boolean existsLike(Long articleId, Long userId);
 
@@ -23,9 +25,9 @@ public interface ISocialRepository {
 
     // ==================== 收藏 ====================
 
-    void saveFavorite(Long articleId, Long userId);
+    boolean saveFavorite(Long articleId, Long userId);
 
-    void removeFavorite(Long articleId, Long userId);
+    boolean removeFavorite(Long articleId, Long userId);
 
     boolean existsFavorite(Long articleId, Long userId);
 
@@ -34,4 +36,8 @@ public interface ISocialRepository {
     Set<Long> findFavoriteUserIds(Long articleId);
 
     Set<Long> findFavoriteArticleIds(Long userId);
+
+    List<Map<String, Object>> countDailyLikesByAuthor(Long userId, String since);
+
+    List<Map<String, Object>> countDailyFavoritesByAuthor(Long userId, String since);
 }

@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 文章点赞 DAO
@@ -31,4 +32,12 @@ public interface IArticleLikeDao {
 
     @Select("SELECT article_id FROM article_like WHERE user_id = #{userId}")
     List<Long> findArticleIdsByUserId(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT DATE(l.create_time) as date, COUNT(1) as cnt
+            FROM article_like l JOIN article a ON l.article_id = a.id
+            WHERE a.author_id = #{userId} AND l.create_time >= #{since}
+            GROUP BY DATE(l.create_time) ORDER BY date
+            """)
+    List<Map<String, Object>> countDailyByAuthor(@Param("userId") Long userId, @Param("since") String since);
 }

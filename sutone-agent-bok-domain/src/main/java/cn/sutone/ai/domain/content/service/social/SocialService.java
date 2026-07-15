@@ -42,7 +42,9 @@ public class SocialService implements ISocialDomainService {
     @Transactional
     @Override
     public void like(Long articleId, Long userId) {
-        socialRepository.saveLike(articleId, userId);
+        if (!socialRepository.saveLike(articleId, userId)) {
+            return; // 已点过赞，跳过计数
+        }
         articleRepository.increaseLikeCount(articleId);
         try {
             RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
@@ -64,7 +66,9 @@ public class SocialService implements ISocialDomainService {
     @Transactional
     @Override
     public void unlike(Long articleId, Long userId) {
-        socialRepository.removeLike(articleId, userId);
+        if (!socialRepository.removeLike(articleId, userId)) {
+            return;
+        }
         articleRepository.decreaseLikeCount(articleId);
         try {
             RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
@@ -122,7 +126,9 @@ public class SocialService implements ISocialDomainService {
     @Transactional
     @Override
     public void favorite(Long articleId, Long userId) {
-        socialRepository.saveFavorite(articleId, userId);
+        if (!socialRepository.saveFavorite(articleId, userId)) {
+            return;
+        }
         articleRepository.increaseFavoriteCount(articleId);
         try {
             RSet<Long> articleSet = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);
@@ -143,7 +149,9 @@ public class SocialService implements ISocialDomainService {
     @Transactional
     @Override
     public void unfavorite(Long articleId, Long userId) {
-        socialRepository.removeFavorite(articleId, userId);
+        if (!socialRepository.removeFavorite(articleId, userId)) {
+            return;
+        }
         articleRepository.decreaseFavoriteCount(articleId);
         try {
             RSet<Long> articleSet = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);

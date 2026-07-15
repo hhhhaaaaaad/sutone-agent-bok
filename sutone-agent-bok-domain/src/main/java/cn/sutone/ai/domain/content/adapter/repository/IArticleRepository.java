@@ -38,4 +38,8 @@ public interface IArticleRepository {
     void increaseFavoriteCount(Long articleId);
 
     void decreaseFavoriteCount(Long articleId);
+
+    List<ArticleEntity> queryByIds(List<Long> ids);
+
+    List<Long> queryIdsByTags(List<String> tags, List<Long> excludeIds, int limit);
 }

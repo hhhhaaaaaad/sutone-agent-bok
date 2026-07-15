@@ -135,6 +135,25 @@ public class ArticleRepository implements IArticleRepository {
         articleMetaDao.decreaseFavoriteCount(articleId);
     }
 
+    @Override
+    public List<ArticleEntity> queryByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return articleDao.queryByIds(ids).stream()
+                .map(po -> toArticleEntity(po, articleMetaDao.queryByArticleId(po.getId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
+    public List<Long> queryIdsByTags(List<String> tags, List<Long> excludeIds, int limit) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return articleMetaDao.queryIdsByTags(tags, excludeIds, limit);
+    }
+
     private ArticlePO toArticlePO(ArticleEntity articleEntity) {
         return ArticlePO.builder()
                 .id(articleEntity.getArticleId())

@@ -35,16 +35,24 @@ public interface IArticleDao {
     int update(ArticlePO articlePO);
 
     @Select("""
-            SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
-            FROM article
-            WHERE id = #{articleId} AND is_deleted = 0
+            SELECT a.id, a.draft_id, a.author_id, a.title, a.content_md, a.content_html,
+                   a.summary, a.cover_url, a.status, a.publish_time, a.is_deleted,
+                   a.create_time, a.update_time,
+                   u.username AS author_name, u.avatar_url
+            FROM article a
+            LEFT JOIN user u ON a.author_id = u.id
+            WHERE a.id = #{articleId} AND a.is_deleted = 0
             """)
     ArticlePO queryByArticleId(@Param("articleId") Long articleId);
 
     @Select("""
-            SELECT id, draft_id, author_id, title, content_md, content_html, summary, cover_url, status, publish_time, is_deleted, create_time, update_time
-            FROM article
-            WHERE draft_id = #{draftId} AND is_deleted = 0
+            SELECT a.id, a.draft_id, a.author_id, a.title, a.content_md, a.content_html,
+                   a.summary, a.cover_url, a.status, a.publish_time, a.is_deleted,
+                   a.create_time, a.update_time,
+                   u.username AS author_name, u.avatar_url
+            FROM article a
+            LEFT JOIN user u ON a.author_id = u.id
+            WHERE a.draft_id = #{draftId} AND a.is_deleted = 0
             LIMIT 1
             """)
     ArticlePO queryByDraftId(@Param("draftId") Long draftId);
@@ -95,4 +103,21 @@ public interface IArticleDao {
             """)
     List<ArticlePO> queryPageCursor(@Param("cursor") Long cursor, @Param("pageSize") Integer pageSize,
                                      @Param("userId") Long userId, @Param("keyword") String keyword);
+
+    @Select("""
+            <script>
+            SELECT a.id, a.draft_id, a.author_id, a.title, a.content_md, a.content_html,
+                   a.summary, a.cover_url, a.status, a.publish_time, a.is_deleted,
+                   a.create_time, a.update_time,
+                   u.username AS author_name, u.avatar_url
+            FROM article a
+            LEFT JOIN user u ON a.author_id = u.id
+            WHERE a.is_deleted = 0 AND a.id IN
+            <foreach collection='ids' item='id' open='(' separator=',' close=')'>
+                #{id}
+            </foreach>
+            ORDER BY a.publish_time DESC
+            </script>
+            """)
+    List<ArticlePO> queryByIds(@Param("ids") List<Long> ids);
 }

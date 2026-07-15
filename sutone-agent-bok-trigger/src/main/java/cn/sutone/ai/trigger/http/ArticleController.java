@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.IArticleDomainService;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
+import cn.sutone.ai.domain.content.service.ICommentDomainService;
 import cn.sutone.ai.domain.content.service.ISocialDomainService;
 import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
@@ -38,6 +39,9 @@ public class ArticleController implements IArticleService {
 
     @Resource
     private ISocialDomainService socialService;
+
+    @Resource
+    private ICommentDomainService commentService;
 
     /**
      * 发布文章
@@ -83,6 +87,7 @@ public class ArticleController implements IArticleService {
             items.forEach(item -> {
                 item.setLikeCount(socialService.getLikeCount(item.getArticleId()));
                 item.setFavoriteCount(socialService.getFavoriteCount(item.getArticleId()));
+                item.setCommentCount(commentService.getCommentCount(item.getArticleId()));
             });
             Integer total = articleDomainService.countArticles(userId, keyword);
 
@@ -196,6 +201,7 @@ public class ArticleController implements IArticleService {
             items.forEach(item -> {
                 item.setLikeCount(socialService.getLikeCount(item.getArticleId()));
                 item.setFavoriteCount(socialService.getFavoriteCount(item.getArticleId()));
+                item.setCommentCount(commentService.getCommentCount(item.getArticleId()));
             });
             Long nextCursor = articles.isEmpty() ? null : articles.get(articles.size() - 1).getArticleId();
 

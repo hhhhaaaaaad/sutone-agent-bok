@@ -2,8 +2,9 @@ package cn.sutone.ai.domain.content.service.article;
 
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.service.IArticleDomainService;
-import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
+import cn.sutone.ai.domain.content.service.ICommentDomainService;
 import cn.sutone.ai.domain.content.service.ISocialDomainService;
+import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
@@ -18,12 +19,14 @@ public class ArticleDomainService implements IArticleDomainService {
     private final IArticleRepository articleRepository;
     private final ArticleCacheService articleCacheService;
     private final ISocialDomainService socialService;
+    private final ICommentDomainService commentService;
 
     public ArticleDomainService(IArticleRepository articleRepository, ArticleCacheService articleCacheService,
-                                ISocialDomainService socialService) {
+                                ISocialDomainService socialService, ICommentDomainService commentService) {
         this.articleRepository = articleRepository;
         this.articleCacheService = articleCacheService;
         this.socialService = socialService;
+        this.commentService = commentService;
     }
 
     public ArticleEntity queryArticleDetail(Long articleId) {
@@ -52,12 +55,23 @@ public class ArticleDomainService implements IArticleDomainService {
     }
 
     private void patchDynamicFields(ArticleEntity articleEntity, Long articleId) {
+        // 从 Redis 补计数
         if (articleEntity.getMeta() != null) {
             articleEntity.getMeta().setLikeCount(socialService.getLikeCount(articleId));
             articleEntity.getMeta().setFavoriteCount(socialService.getFavoriteCount(articleId));
-            ArticleEntity fresh = articleRepository.queryArticleById(articleId);
-            if (fresh != null && fresh.getMeta() != null) {
+            articleEntity.getMeta().setCommentCount(commentService.getCommentCount(articleId));
+        }
+        // 从 DB 补实时数据（浏览量、作者名、头像）
+        ArticleEntity fresh = articleRepository.queryArticleById(articleId);
+        if (fresh != null) {
+            if (articleEntity.getMeta() != null && fresh.getMeta() != null) {
                 articleEntity.getMeta().setViewCount(fresh.getMeta().getViewCount());
+            }
+            if (fresh.getAuthorName() != null) {
+                articleEntity.setAuthorName(fresh.getAuthorName());
+            }
+            if (fresh.getAvatarUrl() != null) {
+                articleEntity.setAvatarUrl(fresh.getAvatarUrl());
             }
         }
     }

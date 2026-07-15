@@ -38,4 +38,22 @@ public final class RedisKeyConstants {
     public static final String ARTICLE_LIKE_COUNT_PREFIX = "article:like:cnt:";
     /** 文章收藏数计数器 */
     public static final String ARTICLE_FAVORITE_COUNT_PREFIX = "article:favorite:cnt:";
+
+    /** 文章评论数计数器 */
+    public static final String COMMENT_COUNT_PREFIX = "article:comment:count:";
+    /** 评论点赞用户集合 */
+    public static final String COMMENT_LIKE_PREFIX = "comment:like:";
+    /** 评论点赞数计数器 */
+    public static final String COMMENT_LIKE_COUNT_PREFIX = "comment:like:cnt:";
+    /** 评论内容去重 */
+    public static final String COMMENT_DUP_PREFIX = "comment:dup:";
+
+    /** 用户粉丝集合 */
+    public static final String USER_FOLLOWERS_PREFIX = "user:followers:";
+    /** 用户关注集合 */
+    public static final String USER_FOLLOWING_PREFIX = "user:following:";
+    /** 粉丝数计数器 */
+    public static final String USER_FOLLOWERS_COUNT_PREFIX = "user:follow:cnt:followers:";
+    /** 关注数计数器 */
+    public static final String USER_FOLLOWING_COUNT_PREFIX = "user:follow:cnt:following:";
 }

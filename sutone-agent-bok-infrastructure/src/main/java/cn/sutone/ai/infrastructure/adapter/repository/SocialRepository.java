@@ -6,6 +6,8 @@ import cn.sutone.ai.infrastructure.dao.IArticleLikeDao;
 import org.springframework.stereotype.Repository;
 
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -25,13 +27,13 @@ public class SocialRepository implements ISocialRepository {
     // ==================== 点赞 ====================
 
     @Override
-    public void saveLike(Long articleId, Long userId) {
-        articleLikeDao.insert(articleId, userId);
+    public boolean saveLike(Long articleId, Long userId) {
+        return articleLikeDao.insert(articleId, userId) > 0;
     }
 
     @Override
-    public void removeLike(Long articleId, Long userId) {
-        articleLikeDao.delete(articleId, userId);
+    public boolean removeLike(Long articleId, Long userId) {
+        return articleLikeDao.delete(articleId, userId) > 0;
     }
 
     @Override
@@ -57,13 +59,13 @@ public class SocialRepository implements ISocialRepository {
     // ==================== 收藏 ====================
 
     @Override
-    public void saveFavorite(Long articleId, Long userId) {
-        articleFavoriteDao.insert(articleId, userId);
+    public boolean saveFavorite(Long articleId, Long userId) {
+        return articleFavoriteDao.insert(articleId, userId) > 0;
     }
 
     @Override
-    public void removeFavorite(Long articleId, Long userId) {
-        articleFavoriteDao.delete(articleId, userId);
+    public boolean removeFavorite(Long articleId, Long userId) {
+        return articleFavoriteDao.delete(articleId, userId) > 0;
     }
 
     @Override
@@ -84,5 +86,15 @@ public class SocialRepository implements ISocialRepository {
     @Override
     public Set<Long> findFavoriteArticleIds(Long userId) {
         return new LinkedHashSet<>(articleFavoriteDao.findArticleIdsByUserId(userId));
+    }
+
+    @Override
+    public List<Map<String, Object>> countDailyLikesByAuthor(Long userId, String since) {
+        return articleLikeDao.countDailyByAuthor(userId, since);
+    }
+
+    @Override
+    public List<Map<String, Object>> countDailyFavoritesByAuthor(Long userId, String since) {
+        return articleFavoriteDao.countDailyByAuthor(userId, since);
     }
 }

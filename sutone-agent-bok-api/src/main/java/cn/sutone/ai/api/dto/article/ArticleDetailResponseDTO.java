@@ -32,5 +32,6 @@ public class ArticleDetailResponseDTO implements Serializable {
     private Integer viewCount;
     private Integer likeCount;
     private Integer favoriteCount;
+    private Integer commentCount;
     private List<String> tags;
 }
