@@ -1,13 +1,16 @@
 package cn.sutone.ai.domain.content.service.social;
 
+import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
 import cn.sutone.ai.domain.content.adapter.repository.ISocialRepository;
 import cn.sutone.ai.domain.content.service.ISocialDomainService;
 import cn.sutone.ai.types.common.RedisKeyConstants;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RAtomicLong;
 import org.redisson.api.RScoredSortedSet;
 import org.redisson.api.RSet;
 import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -25,21 +28,28 @@ public class SocialService implements ISocialDomainService {
 
     private final RedissonClient redissonClient;
     private final ISocialRepository socialRepository;
+    private final IArticleRepository articleRepository;
 
-    public SocialService(RedissonClient redissonClient, ISocialRepository socialRepository) {
+    public SocialService(RedissonClient redissonClient, ISocialRepository socialRepository,
+                         IArticleRepository articleRepository) {
         this.redissonClient = redissonClient;
         this.socialRepository = socialRepository;
+        this.articleRepository = articleRepository;
     }
 
     // ==================== 点赞 ====================
 
-    //非纯cache-Aside写，先更新缓存，不是直接删除缓存，如果缓存更新失败的时候再删除 redis 缓存
+    @Transactional
     @Override
     public void like(Long articleId, Long userId) {
         socialRepository.saveLike(articleId, userId);
+        articleRepository.increaseLikeCount(articleId);
         try {
             RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
             set.add(userId);
+            RAtomicLong counter = redissonClient.getAtomicLong(
+                    RedisKeyConstants.ARTICLE_LIKE_COUNT_PREFIX + articleId);
+            counter.incrementAndGet();
             RSet<Long> userSet = redissonClient.getSet(RedisKeyConstants.USER_LIKE_PREFIX + userId);
             userSet.add(articleId);
             incrHeatScore(articleId, HEAT_LIKE_WEIGHT);
@@ -47,43 +57,54 @@ public class SocialService implements ISocialDomainService {
             log.warn("Redis cache update failed, evicting like keys article:{}, user:{}", articleId, userId, e);
             redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId).delete();
             redissonClient.getSet(RedisKeyConstants.USER_LIKE_PREFIX + userId).delete();
+            redissonClient.getAtomicLong(RedisKeyConstants.ARTICLE_LIKE_COUNT_PREFIX + articleId).delete();
         }
     }
 
+    @Transactional
     @Override
     public void unlike(Long articleId, Long userId) {
         socialRepository.removeLike(articleId, userId);
+        articleRepository.decreaseLikeCount(articleId);
         try {
             RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
             set.remove(userId);
+            RAtomicLong counter = redissonClient.getAtomicLong(
+                    RedisKeyConstants.ARTICLE_LIKE_COUNT_PREFIX + articleId);
+            counter.decrementAndGet();
             RSet<Long> userSet = redissonClient.getSet(RedisKeyConstants.USER_LIKE_PREFIX + userId);
             userSet.remove(articleId);
         } catch (Exception e) {
             log.warn("Redis cache update failed, evicting like keys article:{}, user:{}", articleId, userId, e);
             redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId).delete();
             redissonClient.getSet(RedisKeyConstants.USER_LIKE_PREFIX + userId).delete();
+            redissonClient.getAtomicLong(RedisKeyConstants.ARTICLE_LIKE_COUNT_PREFIX + articleId).delete();
         }
     }
 
-    //cache-Aside 读
     @Override
     public boolean isLiked(Long articleId, Long userId) {
         RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
-        if (!set.isExists()) {
-            Set<Long> userIds = socialRepository.findLikeUserIds(articleId);
-            set.addAll(userIds);
+        if (set.isExists()) {
+            return set.contains(userId);
         }
-        return set.contains(userId);
+        boolean exists = socialRepository.existsLike(articleId, userId);
+        if (exists) {
+            set.add(userId);
+        }
+        return exists;
     }
 
     @Override
     public int getLikeCount(Long articleId) {
-        RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_LIKE_PREFIX + articleId);
-        if (!set.isExists()) {
-            Set<Long> userIds = socialRepository.findLikeUserIds(articleId);
-            set.addAll(userIds);
+        RAtomicLong counter = redissonClient.getAtomicLong(
+                RedisKeyConstants.ARTICLE_LIKE_COUNT_PREFIX + articleId);
+        if (counter.isExists()) {
+            return (int) counter.get();
         }
-        return set.size();
+        int dbCount = articleRepository.queryLikeCount(articleId);
+        counter.set(dbCount);
+        return dbCount;
     }
 
     @Override
@@ -98,58 +119,71 @@ public class SocialService implements ISocialDomainService {
 
     // ==================== 收藏 ====================
 
+    @Transactional
     @Override
     public void favorite(Long articleId, Long userId) {
         socialRepository.saveFavorite(articleId, userId);
+        articleRepository.increaseFavoriteCount(articleId);
         try {
             RSet<Long> articleSet = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);
             articleSet.add(userId);
+            RAtomicLong counter = redissonClient.getAtomicLong(
+                    RedisKeyConstants.ARTICLE_FAVORITE_COUNT_PREFIX + articleId);
+            counter.incrementAndGet();
             RSet<Long> userSet = redissonClient.getSet(RedisKeyConstants.USER_FAVORITE_PREFIX + userId);
             userSet.add(articleId);
         } catch (Exception e) {
             log.warn("Redis cache update failed, evicting favorite keys for article:{}, user:{}", articleId, userId, e);
             redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId).delete();
             redissonClient.getSet(RedisKeyConstants.USER_FAVORITE_PREFIX + userId).delete();
+            redissonClient.getAtomicLong(RedisKeyConstants.ARTICLE_FAVORITE_COUNT_PREFIX + articleId).delete();
         }
     }
 
+    @Transactional
     @Override
     public void unfavorite(Long articleId, Long userId) {
         socialRepository.removeFavorite(articleId, userId);
+        articleRepository.decreaseFavoriteCount(articleId);
         try {
             RSet<Long> articleSet = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);
             articleSet.remove(userId);
+            RAtomicLong counter = redissonClient.getAtomicLong(
+                    RedisKeyConstants.ARTICLE_FAVORITE_COUNT_PREFIX + articleId);
+            counter.decrementAndGet();
             RSet<Long> userSet = redissonClient.getSet(RedisKeyConstants.USER_FAVORITE_PREFIX + userId);
             userSet.remove(articleId);
         } catch (Exception e) {
             log.warn("Redis cache update failed, evicting favorite keys for article:{}, user:{}", articleId, userId, e);
             redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId).delete();
             redissonClient.getSet(RedisKeyConstants.USER_FAVORITE_PREFIX + userId).delete();
+            redissonClient.getAtomicLong(RedisKeyConstants.ARTICLE_FAVORITE_COUNT_PREFIX + articleId).delete();
         }
     }
 
     @Override
     public boolean isFavorited(Long articleId, Long userId) {
         RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);
-        if (!set.isExists()) {
-            Set<Long> userIds = socialRepository.findFavoriteUserIds(articleId);
-            if (!userIds.isEmpty()) {
-                set.addAll(userIds);
-            }
+        if (set.isExists()) {
+            return set.contains(userId);
         }
-        return set.contains(userId);
+        boolean exists = socialRepository.existsFavorite(articleId, userId);
+        if (exists) {
+            set.add(userId);
+        }
+        return exists;
     }
 
     @Override
     public int getFavoriteCount(Long articleId) {
-        RSet<Long> set = redissonClient.getSet(RedisKeyConstants.ARTICLE_FAVORITE_PREFIX + articleId);
-        if (!set.isExists()) {
-            Set<Long> userIds = socialRepository.findFavoriteUserIds(articleId);
-            if (!userIds.isEmpty()) {
-                set.addAll(userIds);
-            }
+        RAtomicLong counter = redissonClient.getAtomicLong(
+                RedisKeyConstants.ARTICLE_FAVORITE_COUNT_PREFIX + articleId);
+        if (counter.isExists()) {
+            return (int) counter.get();
         }
-        return set.size();
+        int dbCount = articleRepository.queryFavoriteCount(articleId);
+        counter.set(dbCount);
+        return dbCount;
     }
 
     @Override

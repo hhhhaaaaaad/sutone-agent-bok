@@ -33,4 +33,9 @@ public final class RedisKeyConstants {
 
     /** 热门排行榜 */
     public static final String LEADERBOARD_VIEW_PREFIX = "leaderboard:view:";
+
+    /** 文章点赞数计数器 */
+    public static final String ARTICLE_LIKE_COUNT_PREFIX = "article:like:cnt:";
+    /** 文章收藏数计数器 */
+    public static final String ARTICLE_FAVORITE_COUNT_PREFIX = "article:favorite:cnt:";
 }

@@ -26,4 +26,16 @@ public interface IArticleRepository {
     Integer countArticlePage(Long userId, String keyword);
 
     void increaseViewCount(Long articleId);
+
+    int queryLikeCount(Long articleId);
+
+    int queryFavoriteCount(Long articleId);
+
+    void increaseLikeCount(Long articleId);
+
+    void decreaseLikeCount(Long articleId);
+
+    void increaseFavoriteCount(Long articleId);
+
+    void decreaseFavoriteCount(Long articleId);
 }

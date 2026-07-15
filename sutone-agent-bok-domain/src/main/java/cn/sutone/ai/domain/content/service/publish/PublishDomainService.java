@@ -4,6 +4,7 @@ import cn.sutone.ai.domain.content.model.aggregate.ContentAggregate;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
 import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
@@ -28,6 +29,7 @@ public class PublishDomainService implements IPublishDomainService {
         this.articleCacheService = articleCacheService;
     }
 
+    @Transactional
     public ArticleEntity publish(Long userId, Long draftId, List<String> tags) {
         DraftEntity draftEntity = draftRepository.queryById(draftId);
         if (null == draftEntity) {
@@ -70,6 +72,7 @@ public class PublishDomainService implements IPublishDomainService {
         return articleEntity;
     }
 
+    @Transactional
     @Override
     public DraftEntity revertToDraft(Long userId, Long articleId) {
         ArticleEntity articleEntity = articleRepository.queryArticleById(articleId);

@@ -103,6 +103,38 @@ public class ArticleRepository implements IArticleRepository {
         articleMetaDao.increaseViewCount(articleId);
     }
 
+    @Override
+    public int queryLikeCount(Long articleId) {
+        Integer count = articleMetaDao.selectLikeCount(articleId);
+        return count != null ? count : 0;
+    }
+
+    @Override
+    public int queryFavoriteCount(Long articleId) {
+        Integer count = articleMetaDao.selectFavoriteCount(articleId);
+        return count != null ? count : 0;
+    }
+
+    @Override
+    public void increaseLikeCount(Long articleId) {
+        articleMetaDao.increaseLikeCount(articleId);
+    }
+
+    @Override
+    public void decreaseLikeCount(Long articleId) {
+        articleMetaDao.decreaseLikeCount(articleId);
+    }
+
+    @Override
+    public void increaseFavoriteCount(Long articleId) {
+        articleMetaDao.increaseFavoriteCount(articleId);
+    }
+
+    @Override
+    public void decreaseFavoriteCount(Long articleId) {
+        articleMetaDao.decreaseFavoriteCount(articleId);
+    }
+
     private ArticlePO toArticlePO(ArticleEntity articleEntity) {
         return ArticlePO.builder()
                 .id(articleEntity.getArticleId())

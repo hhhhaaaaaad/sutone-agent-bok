@@ -33,6 +33,12 @@ public interface IArticleMetaDao {
             """)
     int increaseViewCount(@Param("articleId") Long articleId);
 
+    @Select("SELECT like_count FROM article_meta WHERE article_id = #{articleId}")
+    Integer selectLikeCount(@Param("articleId") Long articleId);
+
+    @Select("SELECT favorite_count FROM article_meta WHERE article_id = #{articleId}")
+    Integer selectFavoriteCount(@Param("articleId") Long articleId);
+
     @Update("""
             UPDATE article_meta
             SET word_count = #{wordCount},
@@ -40,4 +46,32 @@ public interface IArticleMetaDao {
             WHERE article_id = #{articleId}
             """)
     int updateByArticleId(ArticleMetaPO articleMetaPO);
+
+    @Update("""
+            UPDATE article_meta
+            SET like_count = like_count + 1
+            WHERE article_id = #{articleId}
+            """)
+    int increaseLikeCount(@Param("articleId") Long articleId);
+
+    @Update("""
+            UPDATE article_meta
+            SET like_count = GREATEST(like_count - 1, 0)
+            WHERE article_id = #{articleId}
+            """)
+    int decreaseLikeCount(@Param("articleId") Long articleId);
+
+    @Update("""
+            UPDATE article_meta
+            SET favorite_count = favorite_count + 1
+            WHERE article_id = #{articleId}
+            """)
+    int increaseFavoriteCount(@Param("articleId") Long articleId);
+
+    @Update("""
+            UPDATE article_meta
+            SET favorite_count = GREATEST(favorite_count - 1, 0)
+            WHERE article_id = #{articleId}
+            """)
+    int decreaseFavoriteCount(@Param("articleId") Long articleId);
 }
