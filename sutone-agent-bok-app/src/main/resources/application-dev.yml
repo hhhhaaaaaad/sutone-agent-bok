@@ -43,6 +43,10 @@ spring:
     connection-test-query: SELECT 1
   type: com.zaxxer.hikari.HikariDataSource
 
+# 文件上传配置
+upload:
+  dir: ./uploads
+
 # MyBatis 配置【如需使用记得打开】
 #mybatis:
 #  mapper-locations: classpath:/mybatis/mapper/*.xml

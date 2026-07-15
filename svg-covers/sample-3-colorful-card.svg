@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="card-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="50%" style="stop-color:#16213e"/>
+      <stop offset="100%" style="stop-color:#0f3460"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="8" stdDeviation="24" flood-color="rgba(0,0,0,0.4)"/>
+    </filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1200" height="630" fill="url(#card-bg)"/>
+
+  <!-- 装饰圆 -->
+  <circle cx="1000" cy="100" r="250" fill="rgba(233,69,96,0.08)"/>
+  <circle cx="200" cy="500" r="200" fill="rgba(98,246,199,0.06)"/>
+  <circle cx="600" cy="300" r="1" fill="rgba(255,255,255,0.2)"/>
+
+  <!-- 卡通图标区域 -->
+  <rect x="700" y="130" width="400" height="370" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+  <!-- 模拟的图标组：数据库 + 缓存 -->
+  <ellipse cx="860" cy="260" rx="60" ry="25" fill="none" stroke="#e94560" stroke-width="3" opacity="0.7"/>
+  <path d="M800,260 L800,320 Q800,345 860,345 Q920,345 920,320 L920,260" fill="none" stroke="#e94560" stroke-width="3" opacity="0.7"/>
+  <ellipse cx="860" cy="320" rx="60" ry="25" fill="none" stroke="#e94560" stroke-width="3" opacity="0.7"/>
+
+  <!-- 缓存闪电 -->
+  <ellipse cx="940" cy="240" rx="45" ry="20" fill="none" stroke="#62f6c7" stroke-width="3" opacity="0.7"/>
+  <path d="M895,240 L895,290 Q895,310 940,310 Q985,310 985,290 L985,240" fill="none" stroke="#62f6c7" stroke-width="3" opacity="0.7"/>
+  <ellipse cx="940" cy="290" rx="45" ry="20" fill="none" stroke="#62f6c7" stroke-width="3" opacity="0.7"/>
+
+  <!-- 箭头 -->
+  <polygon points="915,275 900,280 915,285" fill="#5aa9ff" opacity="0.7"/>
+
+  <!-- 标签 -->
+  <rect x="60" y="100" width="72" height="28" rx="14" fill="rgba(98,246,199,0.15)" stroke="rgba(98,246,199,0.25)" stroke-width="1"/>
+  <text x="96" y="119" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#62f6c7" font-weight="600">后端架构</text>
+
+  <rect x="140" y="100" width="60" height="28" rx="14" fill="rgba(90,169,255,0.12)" stroke="rgba(90,169,255,0.2)" stroke-width="1"/>
+  <text x="170" y="119" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#5aa9ff" font-weight="600">Redis</text>
+
+  <!-- 标题 -->
+  <text x="60" y="200" font-family="sans-serif" font-size="46" font-weight="800" fill="#ffffff" letter-spacing="0.5">
+    深入理解
+  </text>
+  <text x="60" y="255" font-family="sans-serif" font-size="46" font-weight="800" fill="#62f6c7" letter-spacing="0.5">
+    Cache-Aside 一致性
+  </text>
+
+  <!-- 副标题 -->
+  <text x="60" y="310" font-family="sans-serif" font-size="17" fill="rgba(255,255,255,0.6)">
+    四种缓存一致性策略对比 · Write-Through · 延迟双删 · Canal 订阅
+  </text>
+
+  <!-- 底部信息 -->
+  <rect x="60" y="530" width="1" height="24" fill="rgba(255,255,255,0.2)"/>
+  <text x="78" y="548" font-family="sans-serif" font-size="13" fill="rgba(255,255,255,0.4)">苏东昊 · 2026/07/15 · 12 分钟阅读</text>
+</svg>

@@ -86,9 +86,16 @@ public class PublishDomainService implements IPublishDomainService {
         }
         draftEntity.validateOwner(userId);
 
+        // 文章下线
+        articleEntity.offline();
+        articleRepository.updateArticle(articleEntity);
+
         // 将原草稿重置为可编辑状态（让文章绑定的草稿设置为可编辑）
         draftEntity.revertToEditable();
         draftRepository.update(draftEntity);
+
+        // 清除文章缓存
+        articleCacheService.evictArticleDetail(articleId);
 
         return draftEntity;
     }

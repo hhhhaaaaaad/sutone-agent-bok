@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="sb" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#faf8f5"/>
+      <stop offset="100%" style="stop-color:#f0ebe3"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#sb)"/>
+  <rect x="0" y="0" width="420" height="630" fill="#22252a"/>
+
+  <text x="60" y="290" font-family="serif" font-size="120" font-weight="700" fill="rgba(255,255,255,0.06)">R</text>
+  <text x="60" y="420" font-family="serif" font-size="120" font-weight="700" fill="rgba(255,255,255,0.06)">C</text>
+
+  <rect x="60" y="250" width="64" height="24" rx="4" fill="rgba(98,246,199,0.18)"/>
+  <text x="92" y="267" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#62f6c7">缓存</text>
+
+  <text x="60" y="310" font-family="sans-serif" font-size="20" font-weight="600" fill="rgba(255,255,255,0.5)">深入理解</text>
+  <text x="60" y="348" font-family="sans-serif" font-size="28" font-weight="700" fill="#ffffff" letter-spacing="1">Redis Cache-Aside</text>
+  <text x="60" y="382" font-family="sans-serif" font-size="28" font-weight="700" fill="#62f6c7" letter-spacing="1">一致性方案</text>
+
+  <text x="480" y="310" font-family="serif" font-size="36" font-weight="700" fill="#22252a">从读写策略到生产级实践</text>
+  <text x="480" y="360" font-family="sans-serif" font-size="17" fill="#5d636c">
+    <tspan x="480" dy="0">写穿透（Write-Through）、读旁路（Read-Aside）</tspan>
+    <tspan x="480" dy="28">延迟双删、canal 订阅 binlog 最终一致性</tspan>
+    <tspan x="480" dy="28">四种策略详解 + 代码示例 + 故障复盘</tspan>
+  </text>
+
+  <line x1="480" y1="480" x2="1100" y2="480" stroke="#d8d3cc" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <text x="480" y="520" font-family="sans-serif" font-size="13" fill="#858c96">作者：苏东昊</text>
+  <text x="600" y="520" font-family="sans-serif" font-size="13" fill="#858c96">2026 · 07 · 15</text>
+  <text x="740" y="520" font-family="sans-serif" font-size="13" fill="#858c96">阅读 12 分钟</text>
+  <text x="960" y="520" font-family="sans-serif" font-size="13" fill="#858c96">AI 智能体工作台</text>
+</svg>
