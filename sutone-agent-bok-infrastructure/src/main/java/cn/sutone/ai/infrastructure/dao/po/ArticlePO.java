@@ -19,6 +19,8 @@ public class ArticlePO {
     private Long id;
     private Long draftId;
     private Long authorId;
+    private String authorName;
+    private String avatarUrl;
     private String title;
     private String contentMd;
     private String contentHtml;

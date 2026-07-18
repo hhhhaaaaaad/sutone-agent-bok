@@ -122,10 +122,10 @@ class ArticleRepositoryTest {
         void shouldQueryPageWithMeta() {
             ArticlePO po = ArticlePO.builder().id(1L).title("T").contentMd("C").status(1).isDeleted(0).build();
             ArticleMetaPO metaPO = ArticleMetaPO.builder().articleId(1L).tags("X").build();
-            when(articleDao.queryPage(0, 10)).thenReturn(List.of(po));
+            when(articleDao.queryPage(eq(0), eq(10), isNull(), isNull())).thenReturn(List.of(po));
             when(articleMetaDao.queryByArticleId(1L)).thenReturn(metaPO);
 
-            List<ArticleEntity> result = articleRepository.queryArticlePage(1, 10);
+            List<ArticleEntity> result = articleRepository.queryArticlePage(1, 10, null, null);
             assertEquals(1, result.size());
             assertEquals(List.of("X"), result.get(0).getMeta().getTags());
         }
@@ -133,17 +133,17 @@ class ArticleRepositoryTest {
         @Test
         @DisplayName("pageNo=2 → offset=10")
         void shouldCalculateOffset() {
-            when(articleDao.queryPage(eq(10), eq(10))).thenReturn(List.of());
-            articleRepository.queryArticlePage(2, 10);
-            verify(articleDao).queryPage(10, 10);
+            when(articleDao.queryPage(eq(10), eq(10), isNull(), isNull())).thenReturn(List.of());
+            articleRepository.queryArticlePage(2, 10, null, null);
+            verify(articleDao).queryPage(10, 10, null, null);
         }
     }
 
     @Test
     @DisplayName("countArticlePage 委托 DAO")
     void shouldDelegateCount() {
-        when(articleDao.countPage()).thenReturn(42);
-        assertEquals(42, articleRepository.countArticlePage());
+        when(articleDao.countPage(isNull(), isNull())).thenReturn(42);
+        assertEquals(42, articleRepository.countArticlePage(null, null));
     }
 
     @Test

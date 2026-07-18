@@ -16,6 +16,7 @@ spring:
     import:
       - classpath:agent/agent-draw-io.yml
       - classpath:agent/agent-ppt.yml
+      - classpath:agent/agent-illustration-analysis.yml
       - classpath:agent/agent-writing.yml
   datasource:
     username: root
@@ -40,6 +41,9 @@ mybatis:
 jwt:
   secret: ${JWT_SECRET:sutone-agent-bok-jwt-secret-key-2026}
   expiration: 7200000
+
+upload:
+  dir: ./uploads
 
 logging:
   level:

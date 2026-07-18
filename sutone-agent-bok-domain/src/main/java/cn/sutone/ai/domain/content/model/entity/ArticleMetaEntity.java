@@ -22,6 +22,7 @@ public class ArticleMetaEntity {
     private Integer viewCount;
     private Integer likeCount;
     private Integer favoriteCount;
+    private Integer commentCount;
     private List<String> tags;
 
     public static ArticleMetaEntity init(Long articleId, Integer wordCount, List<String> tags) {

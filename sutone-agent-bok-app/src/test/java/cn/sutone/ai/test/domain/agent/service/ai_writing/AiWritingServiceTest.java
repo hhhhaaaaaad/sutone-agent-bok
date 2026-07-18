@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService;
+import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.model.valobj.DraftStatusVO;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
@@ -23,15 +24,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -49,6 +54,15 @@ class AiWritingServiceTest {
     @Mock
     private DraftDomainService draftDomainService;
 
+    @Mock
+    private RateLimitService rateLimitService;
+
+    @Mock
+    private RedissonClient redissonClient;
+
+    @Mock
+    private RLock rLock;
+
     private AiWritingService aiWritingService;
 
     private static final Long USER_ID = 10001L;
@@ -57,8 +71,12 @@ class AiWritingServiceTest {
     private static final String AGENT_ID = "300002";
 
     @BeforeEach
-    void setUp() {
-        aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService);
+    void setUp() throws InterruptedException {
+        aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService,
+                rateLimitService, redissonClient);
+        when(rateLimitService.tryAcquire(anyLong())).thenReturn(true);
+        when(redissonClient.getLock(anyString())).thenReturn(rLock);
+        when(rLock.tryLock(0, 5, TimeUnit.SECONDS)).thenReturn(true);
     }
 
     @Nested
@@ -72,7 +90,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
             when(aiTaskRepository.nextTaskId()).thenReturn(TASK_ID);
 
-            AiTaskEntity result = aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", Map.of("title", "Java 入门"));
+            AiTaskEntity result = aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", Map.of("title", "Java 入门"), false);
 
             assertNotNull(result);
             assertEquals(TASK_ID, result.getTaskId());
@@ -89,7 +107,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
 
             assertThrows(AppException.class, () ->
-                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", null));
+                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", null, false));
             verify(aiTaskRepository, never()).save(any());
         }
 
@@ -100,7 +118,7 @@ class AiWritingServiceTest {
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
 
             assertThrows(Exception.class, () ->
-                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "INVALID_TYPE", null));
+                    aiWritingService.submitTask(USER_ID, DRAFT_ID, "INVALID_TYPE", null, false));
             verify(aiTaskRepository, never()).save(any());
         }
     }
@@ -268,6 +286,6 @@ class AiWritingServiceTest {
     }
 
     private static AiTaskEntity pendingTask() {
-        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt");
+        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
     }
 }

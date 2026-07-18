@@ -89,8 +89,69 @@ public class ArticleRepository implements IArticleRepository {
     }
 
     @Override
+    public List<ArticleEntity> queryArticlePageCursor(Long cursor, Integer pageSize, Long userId, String keyword) {
+        String kw = null == keyword || keyword.isBlank() ? null : keyword.trim();
+        return articleDao.queryPageCursor(cursor, pageSize, userId, kw)
+                .stream()
+                .map(articlePO -> toArticleEntity(articlePO, articleMetaDao.queryByArticleId(articlePO.getId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
     public void increaseViewCount(Long articleId) {
         articleMetaDao.increaseViewCount(articleId);
+    }
+
+    @Override
+    public int queryLikeCount(Long articleId) {
+        Integer count = articleMetaDao.selectLikeCount(articleId);
+        return count != null ? count : 0;
+    }
+
+    @Override
+    public int queryFavoriteCount(Long articleId) {
+        Integer count = articleMetaDao.selectFavoriteCount(articleId);
+        return count != null ? count : 0;
+    }
+
+    @Override
+    public void increaseLikeCount(Long articleId) {
+        articleMetaDao.increaseLikeCount(articleId);
+    }
+
+    @Override
+    public void decreaseLikeCount(Long articleId) {
+        articleMetaDao.decreaseLikeCount(articleId);
+    }
+
+    @Override
+    public void increaseFavoriteCount(Long articleId) {
+        articleMetaDao.increaseFavoriteCount(articleId);
+    }
+
+    @Override
+    public void decreaseFavoriteCount(Long articleId) {
+        articleMetaDao.decreaseFavoriteCount(articleId);
+    }
+
+    @Override
+    public List<ArticleEntity> queryByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return articleDao.queryByIds(ids).stream()
+                .map(po -> toArticleEntity(po, articleMetaDao.queryByArticleId(po.getId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Override
+    public List<Long> queryIdsByTags(List<String> tags, List<Long> excludeIds, int limit) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return articleMetaDao.queryIdsByTags(tags, excludeIds, limit);
     }
 
     private ArticlePO toArticlePO(ArticleEntity articleEntity) {
@@ -128,6 +189,8 @@ public class ArticleRepository implements IArticleRepository {
                 .articleId(articlePO.getId())
                 .draftId(articlePO.getDraftId())
                 .authorId(articlePO.getAuthorId())
+                .authorName(articlePO.getAuthorName())
+                .avatarUrl(articlePO.getAvatarUrl())
                 .title(articlePO.getTitle())
                 .contentMd(articlePO.getContentMd())
                 .summary(articlePO.getSummary())

@@ -21,4 +21,12 @@ public final class AuthUtil {
         }
         throw new AppException(ResponseCode.UNAUTHORIZED.getCode(), "未登录或 token 已过期");
     }
+
+    public static Long getCurrentUserIdOrNull() {
+        try {
+            return getCurrentUserId();
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

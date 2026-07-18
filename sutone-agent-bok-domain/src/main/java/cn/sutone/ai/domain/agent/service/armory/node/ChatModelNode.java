@@ -75,6 +75,7 @@ public class ChatModelNode extends AbstractArmorySupport {
                 .openAiApi(openAiApi)
                 .defaultOptions(OpenAiChatOptions.builder()
                         .model(chatModelConfig.getModel())
+                        .maxTokens(16384)
                         .toolCallbacks(toolCallbackList)
                         .build())
                 .build();

@@ -2,7 +2,9 @@ package cn.sutone.ai.domain.content.service.publish;
 
 import cn.sutone.ai.domain.content.model.aggregate.ContentAggregate;
 import cn.sutone.ai.domain.content.service.IPublishDomainService;
+import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
@@ -13,20 +15,21 @@ import cn.sutone.ai.types.exception.AppException;
 
 import java.util.List;
 
-/**
- * 发布领域服务
- */
 @Service
 public class PublishDomainService implements IPublishDomainService {
 
     private final IDraftRepository draftRepository;
     private final IArticleRepository articleRepository;
+    private final ArticleCacheService articleCacheService;
 
-    public PublishDomainService(IDraftRepository draftRepository, IArticleRepository articleRepository) {
+    public PublishDomainService(IDraftRepository draftRepository, IArticleRepository articleRepository,
+                                 ArticleCacheService articleCacheService) {
         this.draftRepository = draftRepository;
         this.articleRepository = articleRepository;
+        this.articleCacheService = articleCacheService;
     }
 
+    @Transactional
     public ArticleEntity publish(Long userId, Long draftId, List<String> tags) {
         DraftEntity draftEntity = draftRepository.queryById(draftId);
         if (null == draftEntity) {
@@ -52,6 +55,7 @@ public class PublishDomainService implements IPublishDomainService {
         ArticleEntity articleEntity = contentAggregate.publish(articleId, tags);
         draftRepository.update(contentAggregate.getDraftEntity());
         articleRepository.saveArticle(articleEntity);
+        articleCacheService.evictArticleDetail(articleId);
         return articleEntity;
     }
 
@@ -64,9 +68,11 @@ public class PublishDomainService implements IPublishDomainService {
         // 3. 更新草稿和文章到数据库
         draftRepository.update(draftEntity);
         articleRepository.updateArticle(articleEntity);
+        articleCacheService.evictArticleDetail(articleEntity.getArticleId());
         return articleEntity;
     }
 
+    @Transactional
     @Override
     public DraftEntity revertToDraft(Long userId, Long articleId) {
         ArticleEntity articleEntity = articleRepository.queryArticleById(articleId);
@@ -83,9 +89,16 @@ public class PublishDomainService implements IPublishDomainService {
         }
         draftEntity.validateOwner(userId);
 
+        // 文章下线
+        articleEntity.offline();
+        articleRepository.updateArticle(articleEntity);
+
         // 将原草稿重置为可编辑状态（让文章绑定的草稿设置为可编辑）
         draftEntity.revertToEditable();
         draftRepository.update(draftEntity);
+
+        // 清除文章缓存
+        articleCacheService.evictArticleDetail(articleId);
 
         return draftEntity;
     }

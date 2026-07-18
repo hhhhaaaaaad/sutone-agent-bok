@@ -9,18 +9,26 @@ import cn.sutone.ai.domain.agent.service.IAiWritingService;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownBlockRenderer;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownNormalizer;
+import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
+import cn.sutone.ai.types.common.RedisKeyConstants;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import com.google.adk.events.Event;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.reactivex.rxjava3.core.Flowable;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -31,6 +39,8 @@ import java.util.function.Consumer;
 public class AiWritingService implements IAiWritingService {
 
     private static final String WRITING_AGENT_ID = "300002";
+    private static final String DRAWIO_AGENT_ID = "300000";
+    private static final String ILLUSTRATION_AGENT_ID = "300003";
 
     // 与 agent-writing.yml 中 agents[].name 严格对齐
     private static final String AUTHOR_ANALYST = "agent_writing_analyst";
@@ -46,30 +56,57 @@ public class AiWritingService implements IAiWritingService {
     private static final Map<String, String> PHASE_LABEL_MAP = Map.of(
             "analyzing", "正在分析草稿上下文...",
             "generating", "正在生成写作内容...",
+            "illustrating", "正在识别配图需求...",
             "reviewing", "正在进行质量审查..."
     );
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final IChatService chatService;
     private final IAiTaskRepository aiTaskRepository;
     private final DraftDomainService draftDomainService;
+    private final RateLimitService rateLimitService;
+    private final RedissonClient redissonClient;
 
-    public AiWritingService(IChatService chatService, IAiTaskRepository aiTaskRepository, DraftDomainService draftDomainService) {
+    public AiWritingService(IChatService chatService, IAiTaskRepository aiTaskRepository,
+                            DraftDomainService draftDomainService, RateLimitService rateLimitService,
+                            RedissonClient redissonClient) {
         this.chatService = chatService;
         this.aiTaskRepository = aiTaskRepository;
         this.draftDomainService = draftDomainService;
+        this.rateLimitService = rateLimitService;
+        this.redissonClient = redissonClient;
     }
 
     @Override
-    public AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams) {
-        DraftEntity draft = draftDomainService.queryDraftDetail(draftId, userId);
-        draft.checkEditable();
-        AiWritingTaskTypeVO taskType = AiWritingTaskTypeVO.fromCode(taskTypeCode);
-        String prompt = buildPrompt(draft, taskType, promptParams);
+    public AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams, Boolean enableIllustration) {
+        if (!rateLimitService.tryAcquire(userId)) {
+            throw new AppException(ResponseCode.E0001.getCode(), "AI 请求过于频繁，请稍后再试");
+        }
 
-        Long taskId = aiTaskRepository.nextTaskId();
-        AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt);
-        aiTaskRepository.save(task);
-        return task;
+        String lockKey = RedisKeyConstants.AI_TASK_LOCK_PREFIX + userId + ":" + draftId + ":" + taskTypeCode;
+        RLock lock = redissonClient.getLock(lockKey);
+        try {
+            if (!lock.tryLock(0, 5, TimeUnit.SECONDS)) {
+                throw new AppException(ResponseCode.E0001.getCode(), "请勿重复提交，上个任务仍在处理中");
+            }
+            DraftEntity draft = draftDomainService.queryDraftDetail(draftId, userId);
+            draft.checkEditable();
+            AiWritingTaskTypeVO taskType = AiWritingTaskTypeVO.fromCode(taskTypeCode);
+            String prompt = buildPrompt(draft, taskType, promptParams);
+
+            Long taskId = aiTaskRepository.nextTaskId();
+            AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt, enableIllustration);
+            aiTaskRepository.save(task);
+            return task;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AppException(ResponseCode.E0001.getCode(), "系统繁忙，请稍后再试");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     @Override
@@ -86,16 +123,16 @@ public class AiWritingService implements IAiWritingService {
     public void generateStream(Long taskId, Long userId, Consumer<AiWritingStreamEventVO> eventConsumer) {
         AiTaskEntity task = queryTask(taskId, userId);
 
-        // 标记任务为运行中
         task.startRunning();
         aiTaskRepository.update(task);
 
         String agentId = resolveAgentId();
         String sessionId = chatService.createSession(agentId, String.valueOf(userId));
-        // reviewer 的最终内容（块渲染后 / 自由文本原样），供落库前统一规范化
         StringBuilder responseBuilder = new StringBuilder();
-        // reviewer 跨 partial 事件的行装配缓冲，只处理完整行，尾部残行留待后续或收尾 flush
         StringBuilder reviewerLineBuffer = new StringBuilder();
+
+        boolean enableIllustration = Boolean.TRUE.equals(task.getEnableIllustration());
+        log.info("generateStream taskId={} enableIllustration={}", taskId, enableIllustration);
 
         try {
             Flowable<Event> events = chatService.handleMessageStream(agentId, String.valueOf(userId), sessionId, task.getPromptPayload());
@@ -105,7 +142,6 @@ public class AiWritingService implements IAiWritingService {
                     return;
                 }
                 String author = event.author();
-                // phase 检测必须在空内容过滤之前：reviewer 会发空 parts 事件传递状态变更
                 String newPhase = AUTHOR_PHASE_MAP.getOrDefault(author, "thinking");
                 if (!Objects.equals(newPhase, currentPhase[0])) {
                     currentPhase[0] = newPhase;
@@ -116,17 +152,14 @@ public class AiWritingService implements IAiWritingService {
                 if (null == content || content.isBlank()) {
                     return;
                 }
-                // analyst 仅用于阶段展示，不推 token、不进最终结果，避免分析文字污染预览与落库
                 if (AUTHOR_ANALYST.equals(author)) {
                     return;
                 }
-                // generator：自由文本初稿，直接推 token 作前端预览，不落库
-                if (!AUTHOR_REVIEWER.equals(author)) {
+                if (AUTHOR_GENERATOR.equals(author)) {
                     eventConsumer.accept(tokenEvent(newPhase, content));
                     return;
                 }
-                // reviewer：终稿。按行装配，逐行识别「结构化块 JSON」或「自由文本」，
-                // 块 -> MarkdownBlockRenderer 确定性渲染（层四）；文本 -> 原样累积、收尾统一 AST 规范化（层二兜底）
+                // reviewer：终稿
                 boolean isPartial = event.partial().orElse(false);
                 reviewerLineBuffer.append(content);
                 if (isPartial && reviewerLineBuffer.indexOf("\n") < 0) {
@@ -147,7 +180,32 @@ public class AiWritingService implements IAiWritingService {
             if (reviewerLineBuffer.length() > 0) {
                 consumeReviewerLine("reviewing", reviewerLineBuffer.toString(), responseBuilder, eventConsumer);
             }
-            String formattedContent = formatMarkdown(responseBuilder.toString());
+
+            // 配图分析 + 子会话编排（仅 enableIllustration=true 时执行）
+            List<IllustrationRequest> illustrationRequests = enableIllustration
+                    ? analyzeIllustrations(userId, responseBuilder.toString())
+                    : List.of();
+            log.info("illustration processing: enableIllustration={} requestCount={}", enableIllustration, illustrationRequests.size());
+            if (!illustrationRequests.isEmpty()) {
+                eventConsumer.accept(statusEvent("illustrating", "正在生成配图..."));
+                for (IllustrationRequest req : illustrationRequests) {
+                    try {
+                        String drawXml = generateIllustration(userId, req);
+                        if (null != drawXml && !drawXml.isBlank()) {
+                            injectIllustration(responseBuilder, req.anchor(), drawXml, eventConsumer);
+                        }
+                    } catch (Exception e) {
+                        log.error("生成配图失败 anchor={}: {}", req.anchor(), e.getMessage());
+                    }
+                }
+            }
+
+            String rawContent = responseBuilder.toString();
+            log.info("=== [DIAG] formatMarkdown 前 (responseBuilder 前2000字) ===\n{}",
+                    rawContent.length() <= 2000 ? rawContent : rawContent.substring(0, 2000) + "...[truncated]");
+            String formattedContent = formatMarkdown(rawContent);
+            log.info("=== [DIAG] formatMarkdown 后 (前2000字) ===\n{}",
+                    formattedContent.length() <= 2000 ? formattedContent : formattedContent.substring(0, 2000) + "...[truncated]");
             markSuccess(task, formattedContent);
             eventConsumer.accept(resultEvent(formattedContent));
             eventConsumer.accept(doneEvent());
@@ -161,6 +219,183 @@ public class AiWritingService implements IAiWritingService {
         }
     }
 
+    private record IllustrationRequest(String anchor, String diagramType, String requirement) {}
+
+    private List<IllustrationRequest> analyzeIllustrations(Long userId, String articleContent) {
+        String prompt = buildIllustrationPrompt(articleContent);
+        String sessionId = chatService.createSession(ILLUSTRATION_AGENT_ID, String.valueOf(userId));
+        List<String> outputs = chatService.handleMessage(
+                ILLUSTRATION_AGENT_ID, String.valueOf(userId), sessionId, prompt);
+
+        List<IllustrationRequest> requests = new ArrayList<>();
+        for (String line : outputs) {
+            if (null == line || line.isBlank()) {
+                continue;
+            }
+            try {
+                JsonNode json = objectMapper.readTree(line.trim());
+                if (json.has("none") && json.get("none").asBoolean()) {
+                    requests.clear();
+                    break;
+                }
+                String anchor = json.has("anchor") ? json.get("anchor").asText() : null;
+                String diagramType = json.has("diagramType") ? json.get("diagramType").asText() : null;
+                String requirement = json.has("requirement") ? json.get("requirement").asText() : null;
+                if (null != anchor && null != diagramType && null != requirement) {
+                    log.info("配图分析识别到需求 anchor={} type={}", anchor, diagramType);
+                    requests.add(new IllustrationRequest(anchor, diagramType, requirement));
+                }
+            } catch (Exception e) {
+                log.warn("解析配图分析结果失败，跳过该行: {}", line, e);
+            }
+        }
+        return requests;
+    }
+
+    private String buildIllustrationPrompt(String articleContent) {
+        return """
+                分析以下技术文章，判断哪些段落适合配图。你必须且只能输出 JSON，每行一条，格式如下：
+                {"type":"illustration_request","anchor":"段落标识","diagramType":"architecture|flowchart|sequence","requirement":"具体画什么"}
+                规则：系统架构→architecture，业务流程→flowchart，调用时序→sequence。最多3条。
+                若无需配图，输出：{"type":"illustration_request","none":true}
+                严禁输出 JSON 以外的任何内容。
+
+                ---文章内容---
+                %s
+                """.formatted(articleContent);
+    }
+
+    private String generateIllustration(Long userId, IllustrationRequest req) {
+        String drawSessionId = chatService.createSession(DRAWIO_AGENT_ID, String.valueOf(userId));
+        String drawPrompt = """
+                请根据以下绘图需求，生成一个 draw.io 图表。
+                图表类型：%s
+                需求描述：%s
+                """.formatted(req.diagramType(), req.requirement());
+
+        Flowable<Event> drawEvents = chatService.handleMessageStream(
+                DRAWIO_AGENT_ID, String.valueOf(userId), drawSessionId, drawPrompt);
+
+        String[] drawXml = {null};
+        // 按 author 缓冲文本，避免跨 Agent 的 JSON 误解析
+        java.util.Map<String, StringBuilder> authorBuffers = new java.util.LinkedHashMap<>();
+        drawEvents.blockingForEach(event -> {
+            if (!event.functionCalls().isEmpty() || !event.functionResponses().isEmpty()) {
+                return;
+            }
+            String author = event.author();
+            String content = event.stringifyContent();
+            if (null == content || content.isBlank() || null == author) {
+                return;
+            }
+            // 只处理 agent_drawer 的输出（它是真正产生 JSON 的 agent）
+            if (!"agent_drawer".equals(author)) {
+                return;
+            }
+
+            boolean isPartial = event.partial().orElse(false);
+            StringBuilder buffer = authorBuffers.computeIfAbsent(author, k -> new StringBuilder());
+            buffer.append(content);
+
+            String accumulated = buffer.toString();
+            if (isPartial && accumulated.indexOf('\n') < 0) {
+                return;
+            }
+
+            String[] lines = accumulated.split("\n", -1);
+            String remaining = lines[lines.length - 1];
+            buffer.setLength(0);
+            if (!remaining.isEmpty()) {
+                buffer.append(remaining);
+            }
+
+            int processUpTo = isPartial ? lines.length - 1 : lines.length;
+            for (int i = 0; i < processUpTo; i++) {
+                String line = lines[i].trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                try {
+                    JsonNode json = objectMapper.readTree(line);
+                    String type = json.has("type") ? json.get("type").asText() : null;
+                    if ("drawio_done".equals(type)) {
+                        drawXml[0] = json.has("content") ? json.get("content").asText() : null;
+                        log.info("generateIllustration 提取到 drawio_done XML length={}",
+                                drawXml[0] != null ? drawXml[0].length() : 0);
+                    }
+                } catch (Exception e) {
+                    // 跳过非 JSON 行（正常情况：XML 内容行等）
+                }
+            }
+        });
+        // flush 残留缓冲
+        for (java.util.Map.Entry<String, StringBuilder> entry : authorBuffers.entrySet()) {
+            String remaining = entry.getValue().toString().trim();
+            if (!remaining.isEmpty()) {
+                try {
+                    JsonNode json = objectMapper.readTree(remaining);
+                    String type = json.has("type") ? json.get("type").asText() : null;
+                    if ("drawio_done".equals(type)) {
+                        drawXml[0] = json.has("content") ? json.get("content").asText() : null;
+                        log.info("generateIllustration flush 提取到 drawio_done XML length={}",
+                                drawXml[0] != null ? drawXml[0].length() : 0);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        log.info("generateIllustration 完成 anchor={} xmlNull={}", req.anchor(), drawXml[0] == null);
+        return drawXml[0];
+    }
+
+    private void injectIllustration(StringBuilder responseBuilder, String anchor,
+                                     String drawXml, Consumer<AiWritingStreamEventVO> eventConsumer) {
+        String diagramBlock = "\n```drawio\n" + drawXml + "\n```\n";
+        int anchorPos = findAnchor(responseBuilder, anchor);
+        log.info("injectIllustration anchor='{}' found={}", anchor, anchorPos >= 0);
+        if (anchorPos >= 0) {
+            int insertPos = anchorPos + anchor.length();
+            int lineEnd = responseBuilder.indexOf("\n", insertPos);
+            if (lineEnd >= 0) {
+                responseBuilder.insert(lineEnd, "\n" + diagramBlock);
+            } else {
+                responseBuilder.insert(insertPos, "\n" + diagramBlock);
+            }
+        } else {
+            responseBuilder.append("\n").append(diagramBlock);
+        }
+        eventConsumer.accept(tokenEvent("illustrating", diagramBlock));
+    }
+
+    /**
+     * 在正文中查找 anchor，支持降级匹配：精确 → 去首尾空白 → 最长的词
+     */
+    private int findAnchor(StringBuilder text, String anchor) {
+        if (null == anchor || anchor.isBlank()) {
+            return -1;
+        }
+        // 1. 精确匹配
+        int pos = text.indexOf(anchor);
+        if (pos >= 0) return pos;
+        // 2. 去首尾空白后匹配
+        String trimmed = anchor.trim();
+        if (!trimmed.equals(anchor)) {
+            pos = text.indexOf(trimmed);
+            if (pos >= 0) return pos;
+        }
+        // 3. 取 anchor 中最长的词（大概率是核心关键词）
+        String[] words = trimmed.split("\\s+");
+        String longest = "";
+        for (String w : words) {
+            if (w.length() > longest.length()) longest = w;
+        }
+        if (longest.length() >= 3) {
+            pos = text.indexOf(longest);
+            if (pos >= 0) return pos;
+        }
+        return -1;
+    }
+
     /**
      * 消费 reviewer 的一行输出：结构化块走确定性渲染，自由文本原样累积。
      * 渲染结果既累积进最终落库内容，也作为 token 推给前端预览。
@@ -170,9 +405,10 @@ public class AiWritingService implements IAiWritingService {
         if (null == line) {
             return;
         }
-        // 保留空行作为段落分隔符（AST 需要空行来识别段落边界）
+        // 空行需要作为段落分隔符同时发给前端和落库，否则流式渲染时缺少段落边界
         if (line.isBlank()) {
             responseBuilder.append("\n");
+            eventConsumer.accept(tokenEvent(phase, "\n"));
             return;
         }
         if (MarkdownBlockRenderer.isBlockLine(line)) {

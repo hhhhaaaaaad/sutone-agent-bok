@@ -14,6 +14,10 @@ thread:
 
 # 数据库配置；启动时配置数据库资源信息
 spring:
+  data:
+    redis:
+      host: localhost
+      port: 16379
   config:
     import:
 #      - classpath:agent/test-agent-02.yml
@@ -21,6 +25,7 @@ spring:
 #       - classpath:agent/only-one-agent.yml
        - classpath:agent/agent-draw-io.yml
        - classpath:agent/agent-ppt.yml
+       - classpath:agent/agent-illustration-analysis.yml
        - classpath:agent/agent-writing.yml
   datasource:
     username: root
@@ -38,6 +43,10 @@ spring:
     connection-test-query: SELECT 1
   type: com.zaxxer.hikari.HikariDataSource
 
+# 文件上传配置
+upload:
+  dir: ./uploads
+
 # MyBatis 配置【如需使用记得打开】
 #mybatis:
 #  mapper-locations: classpath:/mybatis/mapper/*.xml
@@ -50,4 +59,6 @@ mybatis:
 logging:
   level:
     root: info
+    com.google.adk.flows.BaseLlmFlow: warn
+    cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService: debug
   config: classpath:logback-spring.xml

@@ -67,6 +67,9 @@ public class DraftEntity {
     }
 
     public void revertToEditable() {
+        if (DraftStatusVO.EDITING == this.status) {
+            return;
+        }
         if (DraftStatusVO.PUBLISHED != this.status) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "仅已发布草稿可回退编辑");
         }

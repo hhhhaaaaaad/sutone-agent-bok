@@ -67,7 +67,8 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
                     AuthUtil.getCurrentUserId(),
                     requestDTO.getDraftId(),
                     requestDTO.getTaskType(),
-                    requestDTO.getPromptParams()
+                    requestDTO.getPromptParams(),
+                    requestDTO.getEnableIllustration()
             );
             return Response.<SubmitAiTaskResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -142,9 +143,13 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
             log.warn("AI 写作 SSE 连接超时 taskId:{}", taskId);
         });
 
+        // 必须在主线程提前获取 userId：CompletableFuture.runAsync 使用 ForkJoinPool 线程，
+        // 不继承 Spring SecurityContext，异步线程内调用 AuthUtil.getCurrentUserId() 会 NPE
+        Long currentUserId = AuthUtil.getCurrentUserId();
+
         CompletableFuture.runAsync(() -> {
             try {
-                aiWritingService.generateStream(taskId, AuthUtil.getCurrentUserId(), event -> {
+                aiWritingService.generateStream(taskId, currentUserId, event -> {
                     if (completed.get()) {
                         return;
                     }

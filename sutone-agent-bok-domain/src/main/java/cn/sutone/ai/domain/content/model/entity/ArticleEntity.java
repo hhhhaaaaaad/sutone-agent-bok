@@ -23,6 +23,8 @@ public class ArticleEntity {
     private Long articleId;
     private Long draftId;
     private Long authorId;
+    private String authorName;
+    private String avatarUrl;
     private String title;
     private String contentMd;
     private String summary;

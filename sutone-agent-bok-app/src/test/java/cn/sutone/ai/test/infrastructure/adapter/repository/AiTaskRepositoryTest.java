@@ -48,7 +48,7 @@ class AiTaskRepositoryTest {
         @Test
         @DisplayName("Entity -> PO 转换并调用 insert")
         void shouldConvertAndInsert() {
-            AiTaskEntity entity = AiTaskEntity.initPending(1L, 100L, 200L, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt");
+            AiTaskEntity entity = AiTaskEntity.initPending(1L, 100L, 200L, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
 
             aiTaskRepository.save(entity);
 

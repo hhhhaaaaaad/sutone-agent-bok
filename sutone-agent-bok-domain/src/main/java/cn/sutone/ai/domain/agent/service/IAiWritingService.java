@@ -15,7 +15,7 @@ public interface IAiWritingService {
     /**
      * 提交 AI 写作任务
      */
-    AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams);
+    AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams, Boolean enableIllustration);
 
     /**
      * 查询任务详情

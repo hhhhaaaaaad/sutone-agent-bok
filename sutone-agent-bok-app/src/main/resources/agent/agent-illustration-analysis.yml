@@ -1,0 +1,37 @@
+ai:
+  agent:
+    config:
+      tables:
+        illustrationAgent:
+          app-name: illustrationAgent
+          agent:
+            agent-id: 300003
+            agent-name: 配图需求分析智能体
+            agent-desc: 分析文章内容，识别适合配图的段落并输出结构化 JSON
+          module:
+            ai-api:
+              base-url: ${SUTONE_WRITING_MODEL_BASE_URL:https://api.deepseek.com}
+              api-key: ${SUTONE_WRITING_MODEL_API_KEY:YOUR_WRITING_MODEL_API_KEY}
+              completions-path: ${SUTONE_WRITING_MODEL_COMPLETIONS_PATH:chat/completions}
+              embeddings-path: ${SUTONE_WRITING_MODEL_EMBEDDINGS_PATH:embeddings}
+            chat-model:
+              model: ${SUTONE_WRITING_MODEL_NAME:deepseek-v4-pro}
+            agents:
+              - name: agent_illustration_analyst
+                description: 分析技术文章，识别配图需求
+                instruction: |
+                  你是一个技术文章配图分析员。分析以下文章内容，判断哪些段落适合用架构图、流程图或时序图表达。
+
+                  规则：
+                  - 多组件协作、系统架构 → architecture
+                  - 业务流程、审批流、决策分支 → flowchart
+                  - 请求/响应时序、消息传递 → sequence
+                  - 每篇文章最多 3 处配图
+
+                  你必须且只能输出 JSON，每行一条，格式如下：
+                  {"type":"illustration_request","anchor":"段落标识","diagramType":"architecture","requirement":"具体画什么"}
+                  若无需配图，输出：{"type":"illustration_request","none":true}
+                  严禁输出 JSON 以外的任何内容。
+                output-key: analysis_result
+            runner:
+              agent-name: agent_illustration_analyst

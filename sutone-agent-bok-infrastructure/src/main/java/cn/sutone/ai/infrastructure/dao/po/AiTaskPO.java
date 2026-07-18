@@ -21,6 +21,7 @@ public class AiTaskPO {
     private Long draftId;
     private String taskType;
     private String promptPayload;
+    private Integer enableIllustration;
     private String responseContent;
     private Integer status;
     private String errorMsg;
