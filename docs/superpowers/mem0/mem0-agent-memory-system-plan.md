@@ -171,19 +171,19 @@ SQLiteManager.history           →    memory_history 表
 SQLiteManager.get_last_messages →    memory_history 表按 session_id 查
 ```
 
-### 3.2 V3 Pipeline 的 Java 实现（简化版，保留 6 阶段）
+### 3.2 V3 Pipeline 的 Java 实现（完整版，保留 8 阶段）
 
 ```java
 /**
- * 对应 Mem0._add_to_vector_store()，走 V3 简化 Pipeline
+ * 对应 Mem0._add_to_vector_store()，走 V3 完整 Pipeline
  */
-@Async
+@Async("memoryExecutor")
 public void add(Long userId, Long agentId, String sessionId,
                 List<Map<String, String>> messages) {
 
     // Phase 0: 上下文收集
-    // 从 memory_history 表取该 session 最近 10 条消息
-    List<String> lastMessages = memoryRepository.getLastMessages(sessionId, 10);
+    // 从 chat_message 表取该 session 最近 10 条消息
+    List<ChatMessagePO> lastMessages = chatMessageDao.selectLastN(sessionId, 10);
 
     // Phase 1: 已有记忆检索（传入 LLM 做去重）
     String combinedText = messages.stream()
@@ -211,58 +211,179 @@ public void add(Long userId, Long agentId, String sessionId,
     for (int i = 0; i < candidates.size(); i++) {
         String hash = md5(texts.get(i));
         if (existingHashes.contains(hash) || batchHashes.contains(hash)) {
-            continue; // "Skipping duplicate memory (hash match)"
+            continue;
         }
         batchHashes.add(hash);
         toInsert.add(MemoryRecord.create(userId, candidates.get(i).type(),
             texts.get(i), hash, sessionId));
     }
 
-    // Phase 5-6: 批量持久化 + history
+    // Phase 5: 记忆 UPDATE 判定（语义相似度 > 0.9 → UPDATE 而非 ADD）
+    List<MemoryRecord> finalInserts = new ArrayList<>();
     for (int i = 0; i < toInsert.size(); i++) {
         MemoryRecord record = toInsert.get(i);
-        memoryRepository.insert(record);
-        vectorStore.insert(record.getId(), userId, embeddings.get(i),
-            record.getContent(), record.getContentHash());
-        memoryRepository.insertHistory(record.getId(), null,
-            record.getContent(), "ADD", sessionId);
+        float[] embedding = embeddings.get(i);
+        
+        // 在已有记忆中查找是否有高度相似的（cosine > 0.9）
+        Optional<ScoredMemory> nearDuplicate = existingMemories.stream()
+            .map(existing -> new ScoredMemory(existing.getId(), existing.getContent(),
+                cosineSimilarity(embedding, vectorStore.getVector(existing.getId()))))
+            .filter(sm -> sm.score() > 0.9)
+            .max(Comparator.comparingDouble(ScoredMemory::score));
+        
+        if (nearDuplicate.isPresent()) {
+            // UPDATE：新内容替换旧内容
+            Long existingId = nearDuplicate.get().id();
+            String oldContent = nearDuplicate.get().content();
+            memoryRepository.updateContent(existingId, record.getContent(), md5(record.getContent()));
+            vectorStore.update(existingId, embedding, record.getContent());
+            memoryRepository.insertHistory(existingId, oldContent, record.getContent(), "UPDATE", sessionId);
+        } else {
+            finalInserts.add(record);
+        }
     }
+
+    // Phase 6: 词形还原（为 BM25 关键词搜索准备）
+    // 中文使用 ngram 分词，存储分词结果供后续 FULLTEXT 检索
+    for (MemoryRecord record : finalInserts) {
+        record.setContentTokenized(tokenizeForSearch(record.getContent()));
+    }
+
+    // Phase 7: 批量持久化（MySQL + 向量库 + history）
+    for (int i = 0; i < finalInserts.size(); i++) {
+        MemoryRecord record = finalInserts.get(i);
+        try {
+            memoryRepository.insert(record);
+            vectorStore.insert(record.getId(), userId, embeddings.get(i),
+                record.getContent(), record.getContentHash());
+            memoryRepository.insertHistory(record.getId(), null,
+                record.getContent(), "ADD", sessionId);
+        } catch (DuplicateKeyException e) {
+            log.debug("跳过重复记忆: hash={}", record.getContentHash());
+        }
+    }
+
+    // Phase 8: 保存原始消息到 chat_message（已在 ChatService 层完成，此处跳过）
 }
 ```
 
-### 3.3 混合检索实现（简化版，语义 + 时间衰减）
+### 3.3 混合检索实现（完整版，语义 + BM25 关键词 + 时间衰减 + 重要性）
 
 ```java
 /**
- * 对应 Mem0._search_vector_store()，over-fetch + 内存精排
+ * 对应 Mem0._search_vector_store()，完整混合检索 pipeline
  */
 public List<MemoryItem> search(Long userId, String query, int topK, double threshold) {
-    // Step 1: embed 查询
+    // Step 1: 查询预处理
+    String queryTokenized = tokenizeForSearch(query);  // 中文分词（ngram）
+
+    // Step 2: embed 查询
     float[] queryEmbedding = embeddingClient.embed(query);
 
-    // Step 2: 语义搜索（over-fetch 4x）
+    // Step 3: 语义搜索（over-fetch 4x）
     int overFetch = Math.max(topK * 4, 60);
     List<ScoredMemory> semanticResults = vectorStore.search(userId, queryEmbedding, overFetch);
 
-    // Step 3: 时间衰减 + gate
+    // Step 4: BM25 关键词搜索（MySQL FULLTEXT ngram）
+    Map<Long, Double> bm25Scores = new HashMap<>();
+    List<MemoryRecordPO> keywordResults = memoryRecordDao.fulltextSearch(userId, queryTokenized, overFetch);
+    if (!keywordResults.isEmpty()) {
+        double maxRawScore = keywordResults.stream()
+            .mapToDouble(MemoryRecordPO::getMatchScore).max().orElse(1.0);
+        for (MemoryRecordPO r : keywordResults) {
+            // BM25 归一化：sigmoid 映射到 [0, 1]
+            double normalized = sigmoidNormalize(r.getMatchScore(), maxRawScore);
+            bm25Scores.put(r.getId(), normalized);
+        }
+    }
+
+    // Step 5: 评分融合（semantic + bm25 + recency + importance）
+    boolean hasBm25 = !bm25Scores.isEmpty();
+    double maxPossible = 1.0 + (hasBm25 ? 1.0 : 0.0) + 0.3 + 0.2;  // 语义1.0 + BM25 1.0 + 时间0.3 + 重要性0.2
+
     List<ScoredMemory> scored = new ArrayList<>();
     for (ScoredMemory r : semanticResults) {
         double semanticScore = r.score();
-        double recencyBoost = computeRecencyBoost(r.lastAccessedAt()); // 0 ~ 0.3
-        double combined = Math.min(semanticScore + recencyBoost, 1.0);
 
-        if (combined < threshold) continue;
+        // 门控：语义分低于阈值直接排除
+        if (semanticScore < threshold) continue;
+
+        double bm25Score = bm25Scores.getOrDefault(r.id(), 0.0);
+        double recencyBoost = computeRecencyBoost(r.lastAccessedAt());      // 0 ~ 0.3
+        double importanceBoost = r.importance() * 0.2;                      // 0 ~ 0.2
+
+        double combined = (semanticScore + bm25Score + recencyBoost + importanceBoost) / maxPossible;
+        combined = Math.min(combined, 1.0);
+
         scored.add(new ScoredMemory(r.id(), r.content(), combined));
     }
 
-    // Step 4: 排序截断
+    // Step 6: 合并 BM25 独有结果（语义搜索没覆盖到的）
+    Set<Long> semanticIds = semanticResults.stream().map(ScoredMemory::id).collect(Collectors.toSet());
+    for (Map.Entry<Long, Double> entry : bm25Scores.entrySet()) {
+        if (!semanticIds.contains(entry.getKey())) {
+            // BM25 命中但语义未命中的记忆，仅在 BM25 分 > 0.5 时纳入
+            if (entry.getValue() > 0.5) {
+                MemoryRecordPO po = memoryRecordDao.selectById(entry.getKey());
+                double combined = (0.0 + entry.getValue() + 0.0 + 0.0) / maxPossible;
+                scored.add(new ScoredMemory(po.getId(), po.getContent(), combined));
+            }
+        }
+    }
+
+    // Step 7: 排序截断 + 更新 access_count
     scored.sort((a, b) -> Double.compare(b.score(), a.score()));
-    return scored.subList(0, Math.min(topK, scored.size())).stream()
+    List<MemoryItem> results = scored.subList(0, Math.min(topK, scored.size())).stream()
         .map(this::toMemoryItem).toList();
+
+    // 异步更新命中记忆的 access_count 和 last_accessed_at
+    List<Long> hitIds = results.stream().map(MemoryItem::getId).toList();
+    CompletableFuture.runAsync(() -> memoryRepository.batchUpdateAccessInfo(hitIds));
+
+    return results;
+}
+
+/**
+ * BM25 归一化：sigmoid 函数
+ */
+private double sigmoidNormalize(double rawScore, double maxScore) {
+    double midpoint = maxScore * 0.5;
+    double steepness = 0.6;
+    return 1.0 / (1.0 + Math.exp(-steepness * (rawScore - midpoint)));
+}
+
+/**
+ * 时间衰减：最近访问的记忆获得更高 boost
+ */
+private double computeRecencyBoost(LocalDateTime lastAccessedAt) {
+    if (lastAccessedAt == null) return 0.0;
+    long daysSince = ChronoUnit.DAYS.between(lastAccessedAt, LocalDateTime.now());
+    // 指数衰减：0天=0.3, 7天=0.15, 30天≈0.05, 90天≈0
+    return 0.3 * Math.exp(-0.05 * daysSince);
 }
 ```
 
-### 3.4 记忆抽取 Prompt 设计
+### 3.4 MySQL FULLTEXT 支持（为 BM25 混合检索准备）
+
+```sql
+-- memory_record 表新增分词字段和全文索引
+ALTER TABLE `memory_record` 
+  ADD COLUMN `content_tokenized` varchar(1024) DEFAULT NULL COMMENT '分词后内容（供FULLTEXT使用）',
+  ADD FULLTEXT INDEX `ft_content` (`content`) WITH PARSER ngram,
+  ADD FULLTEXT INDEX `ft_content_tokenized` (`content_tokenized`) WITH PARSER ngram;
+
+-- BM25 关键词检索 SQL
+SELECT id, content, MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE) AS match_score
+FROM memory_record
+WHERE user_id = ? AND is_deleted = 0
+  AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)
+ORDER BY match_score DESC
+LIMIT ?;
+```
+
+> MySQL 8 的 ngram parser 默认 token_size=2，对中文开箱即用，无需外部分词器。
+
+### 3.5 记忆抽取 Prompt 设计
 
 基于 Mem0 的 `FACT_RETRIEVAL_PROMPT` 和 `ADDITIVE_EXTRACTION_PROMPT` 改写：
 
@@ -307,18 +428,27 @@ Output: {"memory":[]}
 如无值得长期记忆的内容，返回: {"memory":[]}
 ```
 
-### 3.5 与 Mem0 的 v1 差异清单（刻意简化）
+### 3.6 与 Mem0 的对齐清单（完整实现）
 
-| Mem0 特性 | 本项目 v1 | 原因 |
-|-----------|----------|------|
-| spaCy 实体提取 + entity_store | 跳过 | 中文需不同方案，v2 补 |
-| BM25 关键词搜索 | 跳过 | 内存向量库不支持，pgvector 后补 |
-| Reranker | 跳过 | 检索精度够用，v2 补 |
-| 独立 messages 表 | 并入 memory_history 表 | 减少表，够用 |
-| 24 种向量库适配 | 接口抽象 + 2 种实现 | 工厂模式思想保留 |
-| procedural_memory 类型 | 跳过 | 写作 Agent 不需要 |
-| 记忆过期机制 | 跳过 | 长期记忆不应过期 |
-| vision 消息处理 | 跳过 | 写作无图片输入 |
+| Mem0 特性 | 本项目实现 | 实现阶段 |
+|-----------|----------|:--------:|
+| V3 分阶段 Pipeline（8 阶段） | ✅ 完整实现（Phase 0-8） | v1 |
+| 三层去重（LLM + Hash + DB） | ✅ 完整实现 | v1 |
+| 记忆 UPDATE 判定（cosine > 0.9） | ✅ Phase 5 中实现 | v1 |
+| Over-fetch 4x + 内存精排 | ✅ search 方法中实现 | v1 |
+| BM25 关键词搜索 | ✅ MySQL FULLTEXT ngram | v1 |
+| 评分融合（semantic + bm25 + recency + importance） | ✅ 加权归一化 | v1 |
+| 门控机制（threshold gate） | ✅ 语义分低于阈值直接排除 | v1 |
+| history 变更审计 | ✅ ADD/UPDATE/DELETE 全记录 | v1 |
+| 启动 warm-up（向量库重载） | ✅ ApplicationReadyEvent | v1 |
+| spaCy 实体提取 + entity_store | 用 HanLP 中文 NER 替代 | v2 |
+| 实体 Boost（entity → memory 关联加分）| 基于 NER 实体索引表实现 | v2 |
+| Reranker（Cohere/BGE） | BGE-reranker-v2-m3 | v2 |
+| 独立 messages 表 | chat_message 表 | 前置改造 |
+| 24 种向量库适配 | 接口抽象 + 2 种实现（内存 / pgvector） | v1 内存, v2 pgvector |
+| procedural_memory 类型 | 跳过（写作场景不需要） | — |
+| vision 消息处理 | v3 多模态记忆中实现 | v3 |
+| Memory Graph（记忆间关系） | MySQL 邻接表 + 二阶检索 | v3 |
 
 ---
 
@@ -394,6 +524,7 @@ CREATE TABLE `memory_record` (
   `type` varchar(32) NOT NULL COMMENT '类型: fact/preference/knowledge/event',
   `content` varchar(512) NOT NULL COMMENT '记忆内容',
   `content_hash` varchar(64) NOT NULL COMMENT 'MD5(content)，去重第一道',
+  `content_tokenized` varchar(1024) DEFAULT NULL COMMENT '分词后内容（供BM25 FULLTEXT检索）',
   `source_session_id` varchar(64) DEFAULT NULL COMMENT '来源会话ID',
   `importance` double NOT NULL DEFAULT '0.5' COMMENT '重要性权重 0-1',
   `access_count` int(11) NOT NULL DEFAULT '0' COMMENT '被检索命中次数',
@@ -403,7 +534,8 @@ CREATE TABLE `memory_record` (
   `is_deleted` tinyint(4) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_hash` (`user_id`, `content_hash`),
-  KEY `idx_user_type` (`user_id`, `type`)
+  KEY `idx_user_type` (`user_id`, `type`),
+  FULLTEXT KEY `ft_content` (`content`) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent长期记忆表';
 
 -- 记忆变更历史（对应 Mem0 SQLiteManager.history 表）
@@ -586,99 +718,115 @@ try {
 
 ---
 
-## 九、执行步骤与工期（v1）
+## 九、执行步骤与工期
 
 | 步骤 | 内容 | 预估 |
 |------|------|:---:|
-| 1 | DDL + PO + DAO（memory_record + memory_history） | 0.5 天 |
+| 1 | DDL（memory_record + memory_history + chat_message + FULLTEXT 索引） + PO + DAO | 1 天 |
 | 2 | Domain 层实体 + 接口（MemoryRecordEntity、MemoryTypeVO、IMemoryRepository、IMemoryVectorStore） | 0.5 天 |
-| 3 | MemoryRepository（MySQL CRUD）+ SimpleMemoryVectorStore（含 warm-up） | 1 天 |
-| 4 | MemoryEmbeddingClient（复用 OpenAiApi 的 embeddings 接口，支持 batch） | 0.5 天 |
-| 5 | MemoryExtractor（prompt 模板加载 + LLM 调用 + 防御性 JSON 解析） | 1 天 |
-| 6 | MemoryRetriever（over-fetch + 时间衰减 + context 格式化） | 0.5 天 |
-| 7 | MemoryManager（V3 简化 Pipeline + @Async("memoryExecutor") + CRUD） | 0.5 天 |
-| 8 | MemoryController + REST API | 0.5 天 |
-| 9 | 接入 AiWritingService（读/写两个改动点 + memoryExecutor Bean） | 0.5 天 |
-| 10 | 端到端验证（含重启 warm-up 验证） | 1 天 |
-| **合计** | | **6.5 天** |
-
-后端核心链路（步骤 1-9）：约 **5.5 天**。
+| 3 | MemoryRepository（MySQL CRUD + history + FULLTEXT 查询）+ SimpleMemoryVectorStore（含 warm-up） | 1.5 天 |
+| 4 | MemoryEmbeddingClient（复用 OpenAiApi embeddings 接口，支持 single + batch） | 0.5 天 |
+| 5 | MemoryExtractor（prompt 模板 + LLM 调用 + 防御性 JSON 解析 + UPDATE 判定逻辑） | 1.5 天 |
+| 6 | MemoryRetriever（混合检索：语义 + BM25 + 评分融合 + 门控 + over-fetch + access_count 更新） | 1.5 天 |
+| 7 | MemoryManager（完整 V3 Pipeline 8 阶段 + @Async + CRUD） | 1 天 |
+| 8 | MemoryController + REST API（search / list / detail / delete / update） | 0.5 天 |
+| 9 | ChatService 改造（对话持久化到 chat_message 表） | 1 天 |
+| 10 | 写作 Agent 多轮对话改造（新 YAML + WritingChatController） | 1 天 |
+| 11 | 接入记忆系统（对话开始注入长期记忆 + 保存时触发抽取 + memoryExecutor Bean） | 1 天 |
+| 12 | 端到端验证（混合检索 + 去重 + UPDATE + warm-up + 多轮对话） | 1.5 天 |
+| **合计** | | **13 天** |
 
 ---
 
-## 十、验证清单（v1）
+## 十、验证清单
 
-- [ ] 执行 3 次不同类型的写作任务（大纲/续写/润色）
+- [ ] 多轮对话正常工作：用户可以和写作 Agent 来回对话
+- [ ] chat_message 表正确记录每条对话消息
+- [ ] 用户保存文章后，自动触发记忆抽取
 - [ ] `GET /api/v1/memory/list` 能看到自动抽取的记忆（包含 type/content/hash）
-- [ ] 相同内容的写作任务不产生重复记忆（hash 去重验证）
-- [ ] `GET /api/v1/memory/search?q=JVM` 能语义检索到相关记忆
+- [ ] 相同内容不产生重复记忆（三层去重验证）
+- [ ] 语义近似内容走 UPDATE 而非 ADD（cosine > 0.9 验证）
+- [ ] `GET /api/v1/memory/search?q=JVM` 混合检索返回结果（语义 + BM25 融合）
+- [ ] BM25 能命中精确关键词（如型号"RTX 4090"语义搜索可能漏但关键词能命中）
+- [ ] 门控生效：语义分低于阈值的记忆不出现在结果中
 - [ ] 删除一条记忆后，再次搜索不出现
-- [ ] 新写作任务的 prompt 中包含格式化的记忆上下文
-- [ ] 重启后端服务后，记忆不丢失（MySQL 持久化验证）
+- [ ] 新对话开始时 prompt 中包含格式化的长期记忆上下文
+- [ ] 重启服务后，记忆不丢失（MySQL 持久化验证）
+- [ ] 重启后 warm-up 日志输出加载条数，搜索功能正常
 - [ ] `memory_history` 表记录每次 ADD/UPDATE/DELETE 操作
-- [ ] 重启服务后，warm-up 日志输出加载条数，搜索功能正常
+- [ ] access_count 和 last_accessed_at 在检索命中后自动更新
 
 ---
 
 ## 十一、面试话术
 
-> 我的 Agent 记忆系统参考了 Mem0 v2 的核心设计。
+> 我的 Agent 记忆系统完整参考了 Mem0 v2 的核心设计，在 Java 生态中做了等价实现。
 >
-> **写入侧**实现了 V3 分阶段批处理 Pipeline：先从记忆历史表取最近上下文（Phase 0），用已有记忆检索结果传给 LLM 做第一次语义去重（Phase 1-2），抽取结果走 MD5 hash 精确去重（Phase 4），最后批量 embedding + 批量持久化（Phase 3+5+6）。去重一共三层：LLM 语义感知 → MD5 精确匹配 → MySQL 唯一约束兜底。
+> **写入侧**实现了 V3 分阶段批处理 Pipeline（8 阶段）：从 chat_message 表取最近上下文（Phase 0），用已有记忆检索结果传给 LLM 做语义去重（Phase 1-2），抽取结果走 MD5 hash 精确去重（Phase 4），高相似度记忆走 UPDATE 而非重复 ADD（Phase 5），最后批量 embedding + 词形还原 + 批量持久化（Phase 3+6+7）。去重一共三层：LLM 语义感知 → MD5 精确匹配 → MySQL 唯一约束兜底。
 >
-> **检索侧**用了 over-fetch 策略——语义搜索取 4 倍候选集后在内存中做时间衰减精排，避免向量库直接截断导致漏召回。
+> **检索侧**实现了完整的混合检索：语义搜索 over-fetch 4 倍候选集 + MySQL FULLTEXT ngram 做 BM25 关键词搜索 + 时间衰减 + 重要性加权，四路信号通过归一化后加权融合（`combined = (semantic + bm25 + recency + importance) / max_possible`），门控机制确保语义分低于阈值的不会因为关键词匹配而被推到高位。
 >
-> **架构上**，embedding 复用项目已有的 DeepSeek embeddings API，向量存储用接口抽象了一套，默认内存实现可以通过一行配置切换到 pgvector。所有记忆的增删改都带 history 变更日志，完整可审计。内存向量库通过 ApplicationReadyEvent 启动时 warm-up 保证重启后搜索可用。
+> **架构上**，embedding 复用项目已有的 DeepSeek API，向量存储用接口抽象（内存实现 / pgvector 可切换）。对话消息持久化到 chat_message 表，记忆变更全程 history 审计。内存向量库通过 ApplicationReadyEvent 启动时 warm-up。
 >
-> **和 Mem0 的差异**是有意为之的：v1 跳过了 BM25 关键词搜索、实体链接、reranker，因为写作 Agent 场景下语义检索 + 时间衰减已经能 cover 大部分需求。这些是 v2 升级项而非缺失。
+> **和 Mem0 完全对齐的部分**：V3 Pipeline、三层去重、UPDATE 判定、over-fetch、评分融合、门控、BM25 混合检索、history 审计。**后续补齐的**：中文 NER 实体链接 + 实体 Boost、Reranker 精排、pgvector 持久化向量库。
 
 ---
 
 ## 十二、版本演进路线图（v1 / v2 / v3）
 
+> v1 是一次性做完的完善记忆系统（含多轮对话改造）。v2/v3 是后续增强方向。
+
 ### V1：核心记忆系统（当前版本）
 
-**目标**：实现从 0 到 1 的记忆能力，让 Agent 具备跨会话的用户感知。
+**目标**：实现完善的记忆系统，一次性对齐 Mem0 核心能力（混合检索 + 完整 Pipeline + 三层去重 + UPDATE 判定 + BM25）。
 
-**前置依赖**：多轮对话改造（第十三章）已完成，chat_message 表可用。
+**包含多轮对话改造**（chat_message 表 + 对话持久化 + 新 Agent YAML 作为 v1 的一部分直接实现）。
 
 **范围**：
-- V3 简化 Pipeline（6 阶段：上下文收集 → 已有记忆检索 → LLM 抽取 → 批量 embedding → Hash 去重 → 批量持久化）
+- 多轮对话改造（chat_message 表 + ChatService 持久化 + WritingChatController + 新 Agent YAML）
+- V3 完整 Pipeline（8 阶段：上下文收集 → 已有记忆检索 → LLM 抽取 → 批量 embedding → Hash 去重 → UPDATE 判定 → 词形还原 → 批量持久化）
 - 三层去重（LLM 语义 → MD5 精确 → MySQL UK 兜底）
-- 语义检索 + 时间衰减精排（over-fetch 4x）
+- 记忆 UPDATE 能力（cosine > 0.9 时走更新而非新增）
+- **混合检索**（语义搜索 + BM25 关键词搜索 + 时间衰减 + 重要性加权，over-fetch 4x）
+- MySQL FULLTEXT ngram 索引（BM25 关键词搜索基础设施）
+- 评分融合 + 门控机制（semantic + bm25 + recency + importance / max_possible）
+- BM25 sigmoid 归一化
 - 内存向量库（ConcurrentHashMap + cosine + 启动 warm-up）
 - 接入多轮对话写作 Agent（从 chat_message 取最近 10 条上下文、用户保存文章时触发抽取、对话开始时注入长期记忆）
-- REST API（search / list / detail / delete）
+- REST API（search / list / detail / delete / update）
+- access_count + last_accessed_at 自动更新
+- memory_history 完整审计（ADD / UPDATE / DELETE）
 
-**人天**：6.5 天
+**人天**：13 天（见第九章详细步骤）
 
-**技术栈**：MySQL 持久化 + 内存向量库 + DeepSeek Embedding API + @Async 异步抽取
+**技术栈**：MySQL 持久化 + FULLTEXT ngram + 内存向量库 + DeepSeek Embedding API + @Async 异步抽取
 
 ---
 
-### V2：检索增强 + 持久化向量库（预计 v1 完成后 2-3 周启动）
+### V2：实体链接 + Reranker + 持久化向量库
 
-**目标**：提升检索召回率和精度，消除内存向量库的规模瓶颈，支持更多 Agent 接入。
+**目标**：补全实体链接和 Reranker，迁移到持久化向量库，解决重启问题。
 
 **范围**：
 
 | 功能 | 说明 | 预估 |
 |------|------|:---:|
 | pgvector 迁移 | memory_record 表新增 `embedding vector(1024)` 列，IMemoryVectorStore 新增 PgVectorStore 实现，通过配置切换 | 2 天 |
-| MySQL ngram FULLTEXT | `content` 列建 ngram 全文索引，search 时 FULLTEXT + 语义双路召回后融合 | 1 天 |
+| 中文 NER 实体链接 | 集成 HanLP，从记忆中提取实体（技术栈、人名、项目名），建立 entity → memory 索引表 | 2 天 |
+| 实体 Boost（对齐 Mem0） | 查询时提取实体 → entity_store 搜索 → 关联记忆加 boost 分（最高 0.5）→ 融合到评分公式 | 1 天 |
+| Reranker 精排 | 集成 BGE-reranker-v2-m3，search 最终阶段对 top-20 精排到 top-5 | 1.5 天 |
 | Redis 热记忆缓存 | `memory:user:{userId}:top20` TTL 5min，写入/删除时失效 | 0.5 天 |
-| 记忆更新（UPDATE）| 检测到语义相似度 > 0.9 的已有记忆时，走 UPDATE 而非 ADD，保留 history 审计 | 1 天 |
 | 多 Agent 接入 | PPT Agent、Draw.io Agent 接入记忆系统（同一套 pipeline，不同 agentId） | 1 天 |
-| 记忆重要性自适应 | access_count 累加 + importance 衰减公式：`importance *= 0.95^(daysSinceLastAccess)` | 0.5 天 |
-| 手动记忆管理 API | PUT /api/v1/memory/{id}（手动编辑）、POST /api/v1/memory（手动新增） | 0.5 天 |
+| 记忆重要性自适应 | importance 衰减公式：`importance *= 0.95^(daysSinceLastAccess)` + 每日定时任务 | 0.5 天 |
 | 重启 Session 恢复 | 重启后从 chat_message 表加载历史消息，拼接到当前对话 prompt 中恢复上下文 | 1 天 |
 | 记忆抽取增强触发 | 补充会话超时（30min）触发 + 每 10 轮对话自动触发 | 0.5 天 |
-| **合计** | | **8.5 天** |
+| **合计** | | **10 天** |
 
 **技术决策**：
-- pgvector vs Milvus/Qdrant：选 pgvector，因为项目已有 MySQL，pgvector 在 PostgreSQL 上开箱即用，运维成本最低。如果不想引入 PostgreSQL，可在 MySQL `memory_record` 表新增 `embedding_json JSON` 列存储向量，查询时加载到内存做 cosine（等同 v1 内存模式但持久化）
+- pgvector vs Milvus/Qdrant：选 pgvector，运维成本最低。如果不想引入 PostgreSQL，可在 MySQL `memory_record` 表新增 `embedding_json JSON` 列存储向量
+- Reranker 选型：BGE-reranker-v2-m3（开源、中文强），通过 HTTP 微服务部署
+- 实体链接：HanLP 4.x Java 原生支持，不需要外部 Python 服务
 - 不用 Spring AI 的 VectorStore：它接管表结构、Document 模型不匹配记忆实体
-- FULLTEXT vs BM25 库（Lucene）：MySQL ngram FULLTEXT 零外部依赖，中文效果可接受
 
 **验证清单**：
 - [ ] pgvector 切换后，search 性能 < 50ms（1000 条记忆）
@@ -687,10 +835,12 @@ try {
 - [ ] PPT/Draw.io 写作后能看到对应 agentId 的记忆
 - [ ] 重启服务后，继续之前的对话，Agent 仍能理解上下文
 - [ ] 超时/定轮触发正常工作，不遗漏长对话中的记忆
+- [ ] 实体 Boost 生效：查询包含已知实体时，相关记忆排名提升
+- [ ] Reranker 后 top-5 精度比无 Reranker 提升明显
 
 ---
 
-### V3：智能记忆图谱 + 多模态 + 生产化（预计 v2 完成后 1-2 月启动）
+### V3：记忆图谱 + 多模态 + 生产化
 
 **目标**：构建记忆间的关联关系（知识图谱），支持多模态记忆，达到生产级可靠性。
 
@@ -717,31 +867,34 @@ try {
 
 ---
 
-### 版本演进总览
+### 完整实施总览
 
 ```
-前置（6.5 天）             v1（6.5 天）               v2（8.5 天）                   v3（19 天）
-─────────────────────    ─────────────────────    ─────────────────────────    ─────────────────────────────
-多轮对话改造             内存向量库 + MySQL       pgvector 持久化向量库         记忆图谱 + 实体链接
-chat_message 表          语义检索 + 时间衰减      + ngram FULLTEXT 混合检索     + Reranker 精排
-对话持久化               三层去重 Pipeline        + Redis 热缓存               + 中文 NER
-新 Agent YAML            接入多轮对话 Agent       + 记忆 UPDATE 能力            + 多模态记忆
-                         REST API                 + 多 Agent 接入               + 记忆推理（二阶检索）
-                                                  + 重启 Session 恢复           + 自定义 SessionService
-                                                  + 重要性自适应                + 衰减归档 + 监控
-                                                  + 抽取增强触发                + 前端管理页面
+v1 完善记忆系统（13 天）                增强一（10 天）                   增强二（15.5 天）
+───────────────────────────────    ─────────────────────────────    ─────────────────────────────
+多轮对话改造 + chat_message        pgvector 持久化向量库             记忆图谱 + 二阶检索
+完整 V3 Pipeline（8 阶段）          中文 NER 实体链接                自定义 SessionService
+混合检索（语义 + BM25 融合）        实体 Boost                       多模态记忆
+三层去重 + UPDATE 判定              Reranker 精排(BGE)               记忆衰减归档
+评分融合 + 门控 + over-fetch 4x    Redis 热缓存                     记忆导入/导出
+MySQL FULLTEXT ngram               多 Agent 接入                    前端管理页面 + 图谱可视化
+内存向量库 + warm-up               重启 Session 恢复                生产化加固 + 监控
+REST API + history 审计            记忆抽取增强触发                  
+                                   重要性自适应
 ```
 
-**总工期**：前置(6.5d) + v1(6.5d) + v2(8.5d) + v3(19d) = **40.5 个工作日**
+**总工期**：v1(13d) + 增强一(10d) + 增强二(15.5d) = **38.5 个工作日**
 
-**ROI 分析**：
-- 前置 + v1 完成（13 天）即可上线演示，具备面试展示能力
-- v2 完成后可支撑小规模真实用户使用（100 用户级），重启不丢上下文
-- v3 完成后达到生产级，可作为独立的记忆服务被其他项目复用
+**关键节点**：
+- v1 完成（13 天）：完善的记忆系统已可用，对齐 Mem0 核心能力（混合检索 + 去重 + UPDATE + Pipeline），面试展示有深度
+- 增强一完成（+10 天）：对齐 Mem0 全部检索能力（实体 + Reranker + pgvector），生产可用
+- 增强二完成（+15.5 天）：超越 Mem0 开源版（图谱 + 多模态 + 前端），可作为独立产品
 
 ---
 
-## 十三、前置改造：一次性写作 → 多轮对话模式
+## 十三、多轮对话改造（v1 的一部分）
+
+> 以下改造已纳入 v1 的执行步骤（第九章步骤 9-10），此处保留详细设计参考。
 
 ### 13.1 为什么需要这个改造
 
@@ -959,20 +1112,9 @@ ai:
 | 7 | 端到端验证 | 1 天 |
 | **合计** | | **6.5 天** |
 
-### 13.6 与记忆系统的依赖关系
+### 13.6 与记忆系统的关系
 
-```
-推荐实施顺序：
-
-1. 多轮对话改造（本章，6.5 天）
-   └── 产出：chat_message 表 + 多轮对话 API + 新 Agent YAML
-
-2. 记忆系统 v1（第九章，6.5 天）
-   └── 依赖 chat_message 表提供对话上下文
-   └── 触发时机改为「用户保存文章时」
-
-总计：13 天完成多轮对话 + 记忆系统
-```
+多轮对话改造和记忆系统在 v1 中一次性完成，总计 13 天。
 
 ### 13.7 注意事项
 

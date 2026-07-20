@@ -8,6 +8,7 @@ import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService;
+import cn.sutone.ai.domain.agent.service.memory.MemoryManager;
 import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.model.valobj.DraftStatusVO;
@@ -61,6 +62,9 @@ class AiWritingServiceTest {
     private RedissonClient redissonClient;
 
     @Mock
+    private MemoryManager memoryManager;
+
+    @Mock
     private RLock rLock;
 
     private AiWritingService aiWritingService;
@@ -73,7 +77,7 @@ class AiWritingServiceTest {
     @BeforeEach
     void setUp() throws InterruptedException {
         aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService,
-                rateLimitService, redissonClient);
+                rateLimitService, redissonClient, memoryManager);
         when(rateLimitService.tryAcquire(anyLong())).thenReturn(true);
         when(redissonClient.getLock(anyString())).thenReturn(rLock);
         when(rLock.tryLock(0, 5, TimeUnit.SECONDS)).thenReturn(true);

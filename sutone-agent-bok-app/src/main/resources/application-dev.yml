@@ -27,6 +27,7 @@ spring:
        - classpath:agent/agent-ppt.yml
        - classpath:agent/agent-illustration-analysis.yml
        - classpath:agent/agent-writing.yml
+       - classpath:agent/agent-writing-chat.yml
   datasource:
     username: root
     password: 123456
@@ -54,6 +55,16 @@ upload:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+
+# 记忆系统 Embedding 配置（独立于 chat 模型，使用硅基流动 SiliconFlow）
+memory:
+  inject:
+    enabled: ${MEMORY_INJECT_ENABLED:true}
+  embedding:
+    base-url: ${MEMORY_EMBEDDING_BASE_URL:https://api.siliconflow.cn}
+    api-key: ${MEMORY_EMBEDDING_API_KEY:YOUR_SILICONFLOW_API_KEY}
+    model: ${MEMORY_EMBEDDING_MODEL:BAAI/bge-large-zh-v1.5}
+    embeddings-path: ${MEMORY_EMBEDDING_PATH:/v1/embeddings}
 
 # 日志
 logging:

@@ -18,6 +18,11 @@ spring:
       - classpath:agent/agent-ppt.yml
       - classpath:agent/agent-illustration-analysis.yml
       - classpath:agent/agent-writing.yml
+      - classpath:agent/agent-writing-chat.yml
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
   datasource:
     username: root
     password: 123456
@@ -44,6 +49,39 @@ jwt:
 
 upload:
   dir: ./uploads
+
+# 记忆系统配置
+memory:
+  inject:
+    enabled: ${MEMORY_INJECT_ENABLED:true}
+  embedding:
+    base-url: ${MEMORY_EMBEDDING_BASE_URL:https://api.siliconflow.cn}
+    api-key: ${MEMORY_EMBEDDING_API_KEY}
+    model: ${MEMORY_EMBEDDING_MODEL:BAAI/bge-large-zh-v1.5}
+    embeddings-path: /v1/embeddings
+  vector-store: ${MEMORY_VECTOR_STORE:qdrant}
+  qdrant:
+    url: ${QDRANT_URL:http://localhost:6333}
+    collection: agent_memory
+  reranker:
+    enabled: ${MEMORY_RERANKER_ENABLED:true}
+    base-url: ${MEMORY_RERANKER_BASE_URL:https://api.siliconflow.cn/v1}
+    api-key: ${MEMORY_EMBEDDING_API_KEY}
+    model: BAAI/bge-reranker-v2-m3
+    timeout: 3000
+  cache:
+    profile-ttl-minutes: 10
+    profile-max-items: 20
+    search-ttl-minutes: 2
+    hot-importance-threshold: 0.7
+  extraction:
+    max-content-length: 500
+  importance:
+    base-weight: 0.5
+    frequency-weight: 0.3
+    recency-weight: 0.2
+    min: 0.1
+    max: 1.0
 
 logging:
   level:

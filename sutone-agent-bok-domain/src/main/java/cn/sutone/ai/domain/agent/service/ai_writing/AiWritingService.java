@@ -10,6 +10,7 @@ import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownBlockRenderer;
 import cn.sutone.ai.domain.agent.service.ai_writing.markdown.MarkdownNormalizer;
 import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
+import cn.sutone.ai.domain.agent.service.memory.MemoryManager;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
 import cn.sutone.ai.types.common.RedisKeyConstants;
@@ -67,15 +68,17 @@ public class AiWritingService implements IAiWritingService {
     private final DraftDomainService draftDomainService;
     private final RateLimitService rateLimitService;
     private final RedissonClient redissonClient;
+    private final MemoryManager memoryManager;
 
     public AiWritingService(IChatService chatService, IAiTaskRepository aiTaskRepository,
                             DraftDomainService draftDomainService, RateLimitService rateLimitService,
-                            RedissonClient redissonClient) {
+                            RedissonClient redissonClient, MemoryManager memoryManager) {
         this.chatService = chatService;
         this.aiTaskRepository = aiTaskRepository;
         this.draftDomainService = draftDomainService;
         this.rateLimitService = rateLimitService;
         this.redissonClient = redissonClient;
+        this.memoryManager = memoryManager;
     }
 
     @Override
@@ -207,6 +210,12 @@ public class AiWritingService implements IAiWritingService {
             log.info("=== [DIAG] formatMarkdown 后 (前2000字) ===\n{}",
                     formattedContent.length() <= 2000 ? formattedContent : formattedContent.substring(0, 2000) + "...[truncated]");
             markSuccess(task, formattedContent);
+            // 异步触发记忆抽取
+            memoryManager.addAsync(userId, Long.parseLong(WRITING_AGENT_ID), sessionId,
+                    List.of(
+                            Map.of("role", "user", "content", task.getPromptPayload()),
+                            Map.of("role", "assistant", "content", formattedContent)
+                    ));
             eventConsumer.accept(resultEvent(formattedContent));
             eventConsumer.accept(doneEvent());
         } catch (Exception e) {
@@ -464,8 +473,10 @@ public class AiWritingService implements IAiWritingService {
         String formatInstruction = null == promptParams ? null : (String) promptParams.get("formatInstruction");
         String customSuffix = null == customInstruction || customInstruction.isBlank() ? "" : "\n\n用户额外指令：%s".formatted(customInstruction);
         String formatHardRule = null == formatInstruction || formatInstruction.isBlank() ? "" : "\n\n【格式硬约束 - 必须遵守】\n%s".formatted(formatInstruction);
+        String memoryContext = memoryManager.retrieveContext(draft.getUserId(), draft.getContentMd(), 5);
+        String memoryPrefix = null == memoryContext || memoryContext.isBlank() ? "" : "【用户记忆上下文】\n" + memoryContext + "\n\n";
         return switch (taskType) {
-            case GENERATE_OUTLINE -> """
+            case GENERATE_OUTLINE -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文，为这篇技术文章生成 Markdown 大纲。
                     要求：结构清晰、层级合理、适合技术社区文章，不要输出解释说明，只输出大纲。
                     %s
@@ -477,7 +488,7 @@ public class AiWritingService implements IAiWritingService {
 
                     额外参数：%s%s
                     """.formatted(formatHardRule, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
-            case GENERATE_BODY -> """
+            case GENERATE_BODY -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请基于当前草稿上下文续写正文，输出 Markdown 内容。
                     要求：保持技术准确、表达自然、结构连贯，不要重复已有正文，不要输出解释说明。
                     注意：不要输出文章标题（# xxx），标题已在草稿中，直接从 ## 或正文内容开始写。
@@ -496,7 +507,7 @@ public class AiWritingService implements IAiWritingService {
                 String desc = hasSelectedText
                     ? "请对以下选中文本进行润色改写，只输出改写结果，不要输出解释说明。不要输出文章标题（# xxx）。"
                     : "请对当前草稿进行智能处理：\n- 如果内容是**大纲/提纲**（标题多、正文少），请将每个章节展开为完整正文段落，保留原目录结构；\n- 如果已是完整正文，则优化表达质量和阅读流畅度。\n要求：不要输出解释说明。不要输出文章标题（# xxx），标题已在草稿中。";
-                yield """
+                yield memoryPrefix + """
                     你是一个高级技术写作 Agent。%s
                     %s
 
@@ -508,7 +519,7 @@ public class AiWritingService implements IAiWritingService {
                     额外参数：%s%s
                     """.formatted(desc, formatHardRule, nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), body, extraParams, customSuffix);
             }
-            case SUMMARIZE -> """
+            case SUMMARIZE -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请基于当前草稿生成一段适合发布页展示的文章摘要。
                     要求：100 到 200 字，突出主题、技术价值和读者收益，不要输出解释说明。
 
@@ -518,7 +529,7 @@ public class AiWritingService implements IAiWritingService {
 
                     额外参数：%s%s
                     """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
-            case GENERATE_TITLE -> """
+            case GENERATE_TITLE -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请基于当前草稿生成 3 到 5 个候选标题。
                     要求：吸引技术读者、突出文章核心价值、简洁有力，每个标题一行，不要输出解释说明。
 
@@ -529,7 +540,7 @@ public class AiWritingService implements IAiWritingService {
 
                     额外参数：%s%s
                     """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
-            case GENERATE_TAGS -> """
+            case GENERATE_TAGS -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请分析当前草稿内容，生成 3 到 5 个相关技术标签。
                     要求：标签应覆盖主要技术栈和主题，用英文逗号分隔，不要输出解释说明。
 
@@ -540,7 +551,7 @@ public class AiWritingService implements IAiWritingService {
 
                     额外参数：%s%s
                     """.formatted(nullToEmpty(draft.getTitle()), nullToEmpty(draft.getSummary()), nullToEmpty(draft.getContentMd()), extraParams, customSuffix);
-            case QUALITY_CHECK -> """
+            case QUALITY_CHECK -> memoryPrefix + """
                     你是一个高级技术写作 Agent。请对当前草稿进行发布质量检查。
                     检查项：拼写错误、语法问题、结构完整性、代码正确性、技术准确性。
                     要求：逐项列出问题及改进建议，如无问题则输出"质量检查通过"，不要输出多余解释。

@@ -1,5 +1,6 @@
 package cn.sutone.ai.domain.agent.service.chat;
 
+import cn.sutone.ai.domain.agent.adapter.repository.IChatMessageRepository;
 import cn.sutone.ai.domain.agent.model.entity.ChatCommandEntity;
 import cn.sutone.ai.domain.agent.model.valobj.AiAgentConfigTableVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiAgentRegisterVO;
@@ -33,6 +34,9 @@ public class ChatService implements IChatService {
 
     @Resource
     private AiAgentAutoConfigProperties aiAgentAutoConfigProperties;
+
+    @Resource
+    private IChatMessageRepository chatMessageRepository;
 
     private final Map<String, String> userSessions = new ConcurrentHashMap<>();
 
@@ -87,9 +91,33 @@ public class ChatService implements IChatService {
         String sessionId = userSessions.get(cacheKey);
         if (sessionId == null) {
             sessionId = createSession(agentId, userId);
+            // Session 恢复：从 DB 加载最近对话前缀
+            recoverHistoryContext(userId, agentId, message, aiAgentRegisterVO, sessionId);
         }
 
         return handleMessage(agentId, userId, sessionId, message);
+    }
+
+    /** 重启后从 chat_message 恢复上下文（按 userId+agentId 过滤） */
+    private void recoverHistoryContext(String userId, String agentId, String currentMessage,
+                                       AiAgentRegisterVO vo, String newSessionId) {
+        try {
+            Long uid = null;
+            try { uid = Long.parseLong(userId); } catch (NumberFormatException ignored) {}
+            if (uid == null) return;
+
+            List<String> history = chatMessageRepository.getLastMessagesByUserAgent(uid, agentId, 20);
+            if (history.isEmpty()) return;
+
+            InMemoryRunner runner = vo.getRunner();
+            // 将历史消息前缀拼入新 session 的 context
+            String prefix = "【历史对话上下文】\n" + String.join("\n", history) + "\n\n【当前消息】\n";
+            Content prefixContent = Content.fromParts(Part.fromText(prefix));
+            runner.runAsync(userId, newSessionId, prefixContent).blockingForEach(e -> {});
+            log.info("Session 恢复: userId={} agentId={} 恢复 {} 条历史", userId, agentId, history.size());
+        } catch (Exception e) {
+            log.warn("Session 恢复失败 userId={} agentId={}: {}", userId, agentId, e.getMessage());
+        }
     }
 
     @Override
@@ -101,6 +129,9 @@ public class ChatService implements IChatService {
             throw new AppException(ResponseCode.E0001.getCode());
         }
 
+        // 持久化用户消息
+        persistMessage(userId, sessionId, agentId, "user", message);
+
         InMemoryRunner runner = aiAgentRegisterVO.getRunner();
 
         Content userMsg = Content.fromParts(Part.fromText(message));
@@ -108,6 +139,12 @@ public class ChatService implements IChatService {
 
         List<String> outputs = new ArrayList<>();
         events.blockingForEach(event -> outputs.add(event.stringifyContent()));
+
+        // 持久化 AI 回复
+        String response = String.join("\n", outputs);
+        if (!response.isBlank()) {
+            persistMessage(userId, sessionId, agentId, "assistant", response);
+        }
 
         return outputs;
     }
@@ -120,12 +157,40 @@ public class ChatService implements IChatService {
             throw new AppException(ResponseCode.E0001.getCode());
         }
 
+        // 持久化用户消息
+        persistMessage(userId, sessionId, agentId, "user", message);
+
         InMemoryRunner runner = aiAgentRegisterVO.getRunner();
 
         Content userMsg = Content.fromParts(Part.fromText(message));
-        // Enable SSE streaming mode so LLM produces partial events (per-token)
         RunConfig runConfig = RunConfig.builder().setStreamingMode(RunConfig.StreamingMode.SSE).build();
-        return runner.runAsync(userId, sessionId, userMsg, runConfig);
+
+        // 收集 AI 回复并持久化
+        StringBuilder aiResponse = new StringBuilder();
+        return runner.runAsync(userId, sessionId, userMsg, runConfig)
+                .doOnNext(event -> {
+                    String content = event.stringifyContent();
+                    if (content != null && !content.isBlank()) {
+                        aiResponse.append(content);
+                    }
+                })
+                .doOnComplete(() -> {
+                    String response = aiResponse.toString();
+                    if (!response.isBlank()) {
+                        persistMessage(userId, sessionId, agentId, "assistant", response);
+                    }
+                });
+    }
+
+    /** 持久化对话消息，不影响主流程 */
+    private void persistMessage(String userId, String sessionId, String agentId, String role, String content) {
+        try {
+            Long uid = null;
+            try { uid = Long.parseLong(userId); } catch (NumberFormatException ignored) {}
+            chatMessageRepository.save(uid, sessionId, agentId, role, content);
+        } catch (Exception e) {
+            log.warn("对话消息持久化失败 sessionId={} role={}: {}", sessionId, role, e.getMessage());
+        }
     }
 
     @Override

@@ -5,6 +5,7 @@ import cn.sutone.ai.api.dto.*;
 import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.agent.model.valobj.AiAgentConfigTableVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
+import cn.sutone.ai.domain.agent.service.memory.MemoryManager;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
 import com.alibaba.fastjson.JSON;
@@ -14,6 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 
 import javax.annotation.Resource;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import cn.sutone.ai.domain.agent.service.chat.CustomApiConfigManager;
@@ -30,6 +32,9 @@ public class AgentServiceController implements IAgentService {
 
     @Resource
     private IChatService chatService;
+
+    @Resource
+    private MemoryManager memoryManager;
 
     @RequestMapping(value = "query_ai_agent_config_list", method = RequestMethod.GET)
     @Override
@@ -126,12 +131,15 @@ public class AgentServiceController implements IAgentService {
                     .build();
             CustomApiConfigManager.setConfig(sessionId, config);
 
-            List<String> messages = chatService.handleMessage(requestDTO.getAgentId(), requestDTO.getUserId(), sessionId, requestDTO.getMessage());
+            // 记忆注入
+            String enrichedMessage = enrichWithMemory(requestDTO.getUserId(), requestDTO.getMessage());
+            List<String> messages = chatService.handleMessage(requestDTO.getAgentId(), requestDTO.getUserId(), sessionId, enrichedMessage);
 
             ChatResponseDTO responseDTO = new ChatResponseDTO();
+            String result = "";
             try {
                 // 尝试获取最后一条消息并解析
-                String result = messages.stream().reduce((first, second) -> second).orElse("");
+                result = messages.stream().reduce((first, second) -> second).orElse("");
                 ChatResponseDTO parsed = JSON.parseObject(result, ChatResponseDTO.class);
                 if (null != parsed) {
                     responseDTO = parsed;
@@ -147,6 +155,10 @@ public class AgentServiceController implements IAgentService {
                 responseDTO.setType("user");
                 responseDTO.setContent(String.join("\n", messages));
             }
+
+            // 异步触发记忆抽取
+            triggerMemoryExtraction(requestDTO.getUserId(), requestDTO.getAgentId(), sessionId,
+                    requestDTO.getMessage(), result);
 
             return Response.<ChatResponseDTO>builder()
                     .code(ResponseCode.SUCCESS.getCode())
@@ -198,10 +210,16 @@ public class AgentServiceController implements IAgentService {
                     .build();
             CustomApiConfigManager.setConfig(finalSessionId, config);
 
+            // 记忆注入
+            String enrichedMessage = enrichWithMemory(requestDTO.getUserId(), requestDTO.getMessage());
+
+            // 收集完整 AI 回复用于记忆抽取
+            final StringBuilder fullAiResponse = new StringBuilder();
+
             // Accumulate partial text per author, detect complete JSON lines to flush incrementally
             final java.util.concurrent.ConcurrentHashMap<String, StringBuilder> authorBuffers = new java.util.concurrent.ConcurrentHashMap<>();
 
-            io.reactivex.rxjava3.disposables.Disposable disposable = chatService.handleMessageStream(requestDTO.getAgentId(), requestDTO.getUserId(), finalSessionId, requestDTO.getMessage())
+            io.reactivex.rxjava3.disposables.Disposable disposable = chatService.handleMessageStream(requestDTO.getAgentId(), requestDTO.getUserId(), finalSessionId, enrichedMessage)
                     .subscribe(
                             event -> {
                                 try {
@@ -236,6 +254,9 @@ public class AgentServiceController implements IAgentService {
                                     if (content == null || content.isEmpty()) {
                                         return;
                                     }
+
+                                    // 收集 AI 回复用于记忆抽取
+                                    fullAiResponse.append(content);
 
                                     // For PPT generation and reviewing, stream the content directly as ppt_raw
                                     // This prevents buffering huge JSON strings and causing frontend timeouts
@@ -367,6 +388,9 @@ public class AgentServiceController implements IAgentService {
                                     doneMsg.put("chunk", chunk);
                                     emitter.send(doneMsg.toJSONString() + "\n");
                                 } catch (Exception ignored) {}
+                                // 异步触发记忆抽取
+                                triggerMemoryExtraction(requestDTO.getUserId(), requestDTO.getAgentId(),
+                                        finalSessionId, requestDTO.getMessage(), fullAiResponse.toString());
                                 emitter.complete();
                             }
                     );
@@ -456,6 +480,35 @@ public class AgentServiceController implements IAgentService {
         statusMsg.put("phase", phase);
         statusMsg.put("chunk", chunk);
         emitter.send(statusMsg.toJSONString() + "\n");
+    }
+
+    /** 用长期记忆丰富消息，检索与当前消息最相关的 top-5 条长期记忆并注入 */
+    private String enrichWithMemory(String userId, String message) {
+        if (userId == null || message == null) return message;
+        try {
+            Long uid = Long.parseLong(userId);
+            String memoryContext = memoryManager.retrieveContext(uid, message, 5);
+            if (memoryContext == null || memoryContext.isBlank()) return message;
+            return "【用户记忆上下文】\n" + memoryContext + "\n\n" + message;
+        } catch (Exception e) {
+            log.warn("记忆注入失败 userId={}: {}", userId, e.getMessage());
+            return message;
+        }
+    }
+
+    /** 异步触发长期记忆抽取，不阻断主流程 */
+    private void triggerMemoryExtraction(String userId, String agentId, String sessionId,
+                                          String userMessage, String aiResponse) {
+        try {
+            Long uid = Long.parseLong(userId);
+            Long aid = Long.parseLong(agentId);
+            memoryManager.addAsync(uid, aid, sessionId, List.of(
+                    Map.of("role", "user", "content", userMessage != null ? userMessage : ""),
+                    Map.of("role", "assistant", "content", aiResponse != null ? aiResponse : "")
+            ));
+        } catch (Exception e) {
+            log.warn("触发记忆抽取失败 userId={} sessionId={}: {}", userId, sessionId, e.getMessage());
+        }
     }
 
 }

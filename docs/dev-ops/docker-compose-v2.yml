@@ -1,0 +1,61 @@
+# 本地开发一键启动：docker compose -f docker-compose-environment.yml -f docker-compose-v2.yml up -d
+version: '3.8'
+services:
+  sutone-agent-bok-app:
+    build:
+      context: ../../
+      dockerfile: sutone-agent-bok-app/Dockerfile
+    container_name: sutone-agent-bok-app
+    restart: on-failure
+    ports:
+      - "8091:8091"
+    environment:
+      - TZ=PRC
+      - SERVER_PORT=8091
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/sutone_agent_bok
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=123456
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-sutone-agent-bok-jwt-secret-key-2026}
+      - SPRING_PROFILES_ACTIVE=prod
+      # Qdrant
+      - QDRANT_URL=http://qdrant:6333
+      - MEMORY_VECTOR_STORE=qdrant
+      - MEMORY_RERANKER_ENABLED=true
+      # API Keys
+      - MEMORY_EMBEDDING_API_KEY=${MEMORY_EMBEDDING_API_KEY}
+      - SUTONE_WRITING_MODEL_API_KEY=${SUTONE_WRITING_MODEL_API_KEY}
+      - SUTONE_DRAWIO_MODEL_API_KEY=${SUTONE_DRAWIO_MODEL_API_KEY:-YOUR_DRAWIO_MODEL_API_KEY}
+      - SUTONE_PPT_MODEL_API_KEY=${SUTONE_PPT_MODEL_API_KEY:-YOUR_PPT_MODEL_API_KEY}
+    depends_on:
+      - mysql
+      - redis
+      - qdrant
+    volumes:
+      - ./log:/data/log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - my-network
+
+  sutone-agent-bok-front:
+    build:
+      context: ../../sutone-agent-bok-front/
+      dockerfile: Dockerfile
+    container_name: sutone-agent-bok-front
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8091/api/v1
+      - NODE_ENV=production
+    depends_on:
+      - sutone-agent-bok-app
+
+networks:
+  my-network:
+    driver: bridge
