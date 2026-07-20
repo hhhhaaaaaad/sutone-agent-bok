@@ -37,6 +37,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/query_ai_agent_config_list").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
+                        .requestMatchers("/api/v1/memory/migrate/all").permitAll()
+                        .requestMatchers("/api/v1/memory/**").authenticated()
+                        .requestMatchers("/api/v1/writing/chat/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

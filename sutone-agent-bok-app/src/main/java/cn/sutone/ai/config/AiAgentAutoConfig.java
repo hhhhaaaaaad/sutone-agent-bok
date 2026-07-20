@@ -1,6 +1,8 @@
 package cn.sutone.ai.config;
 
 import cn.sutone.ai.domain.agent.model.valobj.properties.AiAgentAutoConfigProperties;
+import cn.sutone.ai.domain.agent.model.valobj.properties.MemoryEmbeddingProperties;
+import cn.sutone.ai.domain.agent.model.valobj.properties.MemoryProperties;
 import cn.sutone.ai.domain.agent.service.IArmoryService;
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +16,7 @@ import java.util.ArrayList;
 
 @Slf4j
 @Configuration
-@EnableConfigurationProperties(AiAgentAutoConfigProperties.class)
+@EnableConfigurationProperties({AiAgentAutoConfigProperties.class, MemoryEmbeddingProperties.class, MemoryProperties.class})
 public class AiAgentAutoConfig implements ApplicationListener<ApplicationReadyEvent> {
 
     @Resource

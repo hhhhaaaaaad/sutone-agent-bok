@@ -3,6 +3,7 @@ package cn.sutone.ai.test.domain.content.service.article;
 import cn.sutone.ai.domain.content.model.entity.ArticleEntity;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
 import cn.sutone.ai.domain.content.adapter.repository.IArticleRepository;
+import cn.sutone.ai.domain.content.service.ICommentDomainService;
 import cn.sutone.ai.domain.content.service.ISocialDomainService;
 import cn.sutone.ai.domain.content.service.article.ArticleDomainService;
 import cn.sutone.ai.domain.content.service.cache.ArticleCacheService;
@@ -33,11 +34,14 @@ class ArticleDomainServiceTest {
     @Mock
     private ISocialDomainService socialService;
 
+    @Mock
+    private ICommentDomainService commentService;
+
     private ArticleDomainService articleDomainService;
 
     @BeforeEach
     void setUp() {
-        articleDomainService = new ArticleDomainService(articleRepository, articleCacheService, socialService);
+        articleDomainService = new ArticleDomainService(articleRepository, articleCacheService, socialService, commentService);
     }
 
     @Nested
