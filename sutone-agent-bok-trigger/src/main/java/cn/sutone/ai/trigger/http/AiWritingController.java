@@ -6,8 +6,10 @@ import cn.sutone.ai.api.dto.aiwriting.SubmitAiTaskRequestDTO;
 import cn.sutone.ai.api.dto.aiwriting.SubmitAiTaskResponseDTO;
 import cn.sutone.ai.api.response.Response;
 import cn.sutone.ai.domain.agent.model.entity.AiTaskEntity;
+import cn.sutone.ai.domain.agent.model.valobj.AiTaskStatusVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.service.IAiWritingService;
+import cn.sutone.ai.domain.agent.service.ITaskEventPublisher;
 import cn.sutone.ai.trigger.security.AuthUtil;
 import cn.sutone.ai.types.enums.ResponseCode;
 import cn.sutone.ai.types.exception.AppException;
@@ -21,7 +23,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import java.io.IOException;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -38,6 +41,12 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
 
     @Resource
     private IAiWritingService aiWritingService;
+
+    @Resource
+    private ITaskEventPublisher taskEventPublisher;
+
+    /** SSE 连接注册表: taskId -> emitter */
+    private final Map<Long, ResponseBodyEmitter> sseConnections = new ConcurrentHashMap<>();
 
     /**
      * 提交 AI 写作任务
@@ -133,43 +142,91 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
      * @return ResponseBodyEmitter，以 text/event-stream 格式推送 {@link AiWritingStreamEventDTO} 序列化后的 JSON 数据
      */
     @GetMapping(value = "ai-writing/task/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseBodyEmitter stream(@RequestParam Long taskId) {
+    public ResponseBodyEmitter stream(@RequestParam Long taskId,
+                                       @RequestParam(required = false) String lastEventId) {
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(10 * 60 * 1000L);
         AtomicBoolean completed = new AtomicBoolean(false);
-
-        emitter.onCompletion(() -> completed.set(true));
-        emitter.onTimeout(() -> {
-            completed.set(true);
-            log.warn("AI 写作 SSE 连接超时 taskId:{}", taskId);
-        });
-
-        // 必须在主线程提前获取 userId：CompletableFuture.runAsync 使用 ForkJoinPool 线程，
-        // 不继承 Spring SecurityContext，异步线程内调用 AuthUtil.getCurrentUserId() 会 NPE
         Long currentUserId = AuthUtil.getCurrentUserId();
 
-        CompletableFuture.runAsync(() -> {
+        // 查任务状态
+        AiTaskEntity task = aiWritingService.queryTask(taskId, currentUserId);
+        AiTaskStatusVO status = task.getStatus();
+
+        if (status == AiTaskStatusVO.PENDING || status == AiTaskStatusVO.RETRYING) {
+            // 排队/重试中：返回 409，前端用轮询
+            emitter.completeWithError(new AppException(ResponseCode.E0001.getCode(),
+                    "任务尚未开始执行，请继续轮询 (status=" + status.getCode() + ")"));
+            return emitter;
+        }
+
+        if (status == AiTaskStatusVO.SUCCESS) {
+            // 已完成：返回结果
+            if (!completed.compareAndSet(false, true)) return emitter;
+            sendEvent(emitter, resultEvent(task.getResponseContent()));
+            sendEvent(emitter, doneEvent());
+            emitter.complete();
+            return emitter;
+        }
+
+        if (status == AiTaskStatusVO.FAILED) {
+            // 失败
+            if (!completed.compareAndSet(false, true)) return emitter;
+            sendEvent(emitter, errorEvent(null == task.getErrorMsg() ? "任务执行失败" : task.getErrorMsg()));
+            emitter.complete();
+            return emitter;
+        }
+
+        // RUNNING: 订阅 Redis Stream 实时事件
+        sseConnections.put(taskId, emitter);
+
+        emitter.onCompletion(() -> { completed.set(true); sseConnections.remove(taskId); });
+        emitter.onTimeout(() -> { completed.set(true); sseConnections.remove(taskId); });
+        emitter.onError(e -> { completed.set(true); sseConnections.remove(taskId); });
+
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                aiWritingService.generateStream(taskId, currentUserId, event -> {
-                    if (completed.get()) {
+                String cursor = lastEventId;
+                while (!completed.get()) {
+                    List<Map.Entry<String, Map<String, String>>> events = taskEventPublisher.readEvents(taskId, cursor);
+                    if (events != null && !events.isEmpty()) {
+                        for (Map.Entry<String, Map<String, String>> entry : events) {
+                            if (completed.get()) break;
+                            cursor = entry.getKey();
+                            Map<String, String> fields = entry.getValue();
+                            AiWritingStreamEventDTO dto = AiWritingStreamEventDTO.builder()
+                                    .phase(fields.getOrDefault("phase", ""))
+                                    .chunk(AiWritingChunkDTO.builder()
+                                            .type(fields.getOrDefault("type", ""))
+                                            .content(fields.getOrDefault("content", ""))
+                                            .build())
+                                    .build();
+                            sendEvent(emitter, dto);
+                            if ("done".equals(fields.get("type")) || "error".equals(fields.get("type"))) {
+                                if (completed.compareAndSet(false, true)) emitter.complete();
+                                return;
+                            }
+                        }
+                    }
+                    Thread.sleep(500);
+                    AiTaskEntity latest = aiWritingService.queryTask(taskId, currentUserId);
+                    AiTaskStatusVO latestStatus = latest.getStatus();
+                    if (latestStatus == AiTaskStatusVO.SUCCESS || latestStatus == AiTaskStatusVO.FAILED) {
+                        if (latestStatus == AiTaskStatusVO.SUCCESS && latest.getResponseContent() != null) {
+                            sendEvent(emitter, resultEvent(latest.getResponseContent()));
+                        }
+                        sendEvent(emitter, doneEvent());
+                        if (completed.compareAndSet(false, true)) emitter.complete();
                         return;
                     }
-                    sendEvent(emitter, toStreamDTO(event));
-                });
-                if (!completed.get()) {
-                    emitter.complete();
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             } catch (Exception e) {
-                log.error("AI 写作流式生成失败 taskId:{}", taskId, e);
-                if (!completed.get()) {
-                    sendEvent(emitter, AiWritingStreamEventDTO.builder()
-                            .phase("error")
-                            .chunk(AiWritingChunkDTO.builder()
-                                    .type("error")
-                                    .content(null == e.getMessage() ? "AI 写作流式生成失败" : e.getMessage())
-                                    .build())
-                            .build());
-                    emitter.completeWithError(e);
-                }
+                log.error("SSE Stream 读取失败 taskId={}: {}", taskId, e.getMessage());
+                if (!completed.get()) emitter.completeWithError(e);
+            } finally {
+                sseConnections.remove(taskId);
+                if (!completed.get()) emitter.complete();
             }
         });
         return emitter;
@@ -282,20 +339,25 @@ public class AiWritingController implements cn.sutone.ai.api.IAiWritingService {
                 .build();
     }
 
-    /**
-     * 构造统一的失败响应
-     *
-     * <p>统一异常处理辅助方法，将 Controller 层捕获的异常转换为标准的 {@link Response} 失败响应。
-     * 如果异常是 {@link AppException} 类型，则提取其中的 code 和 info 作为错误码和错误信息；
-     * 否则使用默认的 {@link ResponseCode#UN_ERROR}。</p>
-     *
-     * <p>使用场景：当前类中 {@link #submitTask} 和 {@link #queryTaskDetail} 的 catch 块中调用，
-     * 将业务异常或系统异常包装为统一的响应格式返回给前端。</p>
-     *
-     * @param e 捕获到的异常对象
-     * @param <T> 响应数据类型
-     * @return 统一失败响应，包含错误码和错误信息
-     */
+    private AiWritingStreamEventDTO resultEvent(String content) {
+        return buildStreamDTO("done", "result", content);
+    }
+
+    private AiWritingStreamEventDTO doneEvent() {
+        return buildStreamDTO("done", "done", "");
+    }
+
+    private AiWritingStreamEventDTO errorEvent(String msg) {
+        return buildStreamDTO("error", "error", msg);
+    }
+
+    private AiWritingStreamEventDTO buildStreamDTO(String phase, String type, String content) {
+        return AiWritingStreamEventDTO.builder()
+                .phase(phase)
+                .chunk(AiWritingChunkDTO.builder().type(type).content(content).build())
+                .build();
+    }
+
     private <T> Response<T> fail(Exception e) {
         String code = ResponseCode.UN_ERROR.getCode();
         String info = e.getMessage();

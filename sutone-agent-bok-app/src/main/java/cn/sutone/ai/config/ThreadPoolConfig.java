@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 @Slf4j
 @EnableAsync
 @Configuration
-@EnableConfigurationProperties(ThreadPoolConfigProperties.class)
+@EnableConfigurationProperties({ThreadPoolConfigProperties.class, AiWritingMqProperties.class})
 public class ThreadPoolConfig {
 
     @Bean
@@ -48,6 +48,19 @@ public class ThreadPoolConfig {
                 new LinkedBlockingQueue<>(properties.getBlockQueueSize()),
                 Executors.defaultThreadFactory(),
                 handler);
+    }
+
+    /** 基础设施专用线程池 (Outbox 发布、补偿扫描等) */
+    @Bean("taskInfrastructureExecutor")
+    public TaskExecutor taskInfrastructureExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("task-infra-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
     }
 
     /** 记忆系统专用异步线程池 */

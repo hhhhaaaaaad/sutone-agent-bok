@@ -85,6 +85,60 @@ services:
       redis:
         condition: service_healthy
 
+  # RocketMQ NameServer
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-namesrv
+    restart: always
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./rocketmq/namesrv/logs:/home/rocketmq/logs
+    command: sh mqnamesrv
+    networks:
+      - my-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'STATS' | nc -w 2 localhost 9876"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rocketmq-broker
+    restart: always
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - ./rocketmq/broker/logs:/home/rocketmq/logs
+      - ./rocketmq/broker/store:/home/rocketmq/store
+      - ./rocketmq/broker/conf/broker.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf:ro
+    command: sh mqbroker -c /home/rocketmq/rocketmq-5.3.1/conf/broker.conf
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+    networks:
+      - my-network
+
+  # RocketMQ Dashboard (管理控制台, 可选)
+  rocketmq-dashboard:
+    profiles:
+      - tools
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: rocketmq-dashboard
+    restart: always
+    ports:
+      - "18080:8080"
+    environment:
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=rocketmq-namesrv:9876 -Dcom.rocketmq.sendMessageWithVIPChannel=false"
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+    networks:
+      - my-network
+
   # Qdrant 向量数据库 https://qdrant.tech/
   qdrant:
     image: qdrant/qdrant:latest
