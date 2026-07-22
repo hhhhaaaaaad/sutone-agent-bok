@@ -28,4 +28,9 @@ public class AiTaskPO {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer isDeleted;
+    private LocalDateTime startedAt;
+    private LocalDateTime heartbeatAt;
+    private Integer retryCount;
+    private LocalDateTime nextRetryAt;
+    private String workerId;
 }

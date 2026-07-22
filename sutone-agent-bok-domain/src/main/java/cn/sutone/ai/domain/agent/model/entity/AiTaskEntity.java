@@ -32,6 +32,17 @@ public class AiTaskEntity {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
+    /** 本次执行开始时间 */
+    private LocalDateTime startedAt;
+    /** Worker 执行心跳 */
+    private LocalDateTime heartbeatAt;
+    /** 已重试次数 */
+    private Integer retryCount;
+    /** 下次允许重试时间 */
+    private LocalDateTime nextRetryAt;
+    /** 执行 Worker 标识 */
+    private String workerId;
+
     public static AiTaskEntity initPending(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload, Boolean enableIllustration) {
         if (null == userId) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "用户ID不能为空");
@@ -48,6 +59,7 @@ public class AiTaskEntity {
                 .promptPayload(promptPayload)
                 .enableIllustration(null != enableIllustration && enableIllustration)
                 .status(AiTaskStatusVO.PENDING)
+                .retryCount(0)
                 .createTime(now)
                 .updateTime(now)
                 .build();
@@ -58,10 +70,19 @@ public class AiTaskEntity {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "只有待处理状态的任务可以开始运行");
         }
         this.status = AiTaskStatusVO.RUNNING;
+        this.startedAt = LocalDateTime.now();
+        this.heartbeatAt = LocalDateTime.now();
         this.updateTime = LocalDateTime.now();
     }
 
+    public void touchHeartbeat() {
+        this.heartbeatAt = LocalDateTime.now();
+    }
+
     public void markSuccess(String responseContent) {
+        if (this.status != AiTaskStatusVO.RUNNING) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "只有运行中的任务可以标记成功");
+        }
         this.responseContent = responseContent;
         this.status = AiTaskStatusVO.SUCCESS;
         this.errorMsg = null;
@@ -71,6 +92,14 @@ public class AiTaskEntity {
     public void markFailed(String errorMsg) {
         this.status = AiTaskStatusVO.FAILED;
         this.errorMsg = errorMsg;
+        this.updateTime = LocalDateTime.now();
+    }
+
+    public void markRetrying(String errorMsg) {
+        this.status = AiTaskStatusVO.RETRYING;
+        this.errorMsg = errorMsg;
+        this.retryCount = (null == this.retryCount ? 0 : this.retryCount) + 1;
+        this.nextRetryAt = LocalDateTime.now();
         this.updateTime = LocalDateTime.now();
     }
 

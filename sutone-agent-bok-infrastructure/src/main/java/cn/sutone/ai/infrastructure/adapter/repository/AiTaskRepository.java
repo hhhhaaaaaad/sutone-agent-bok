@@ -8,6 +8,7 @@ import cn.sutone.ai.infrastructure.dao.IAiTaskDao;
 import cn.sutone.ai.infrastructure.dao.po.AiTaskPO;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -51,6 +52,38 @@ public class AiTaskRepository implements IAiTaskRepository {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public int claimTask(Long taskId, String workerId) {
+        return aiTaskDao.claimTask(taskId, AiTaskStatusVO.RUNNING.getCode(), workerId);
+    }
+
+    @Override
+    public void markSuccess(Long taskId, String responseContent) {
+        aiTaskDao.markSuccess(taskId, responseContent);
+    }
+
+    @Override
+    public void markFailed(Long taskId, String errorMsg) {
+        aiTaskDao.markFailed(taskId, errorMsg);
+    }
+
+    @Override
+    public void markRetrying(Long taskId, String errorMsg) {
+        aiTaskDao.markRetrying(taskId, errorMsg);
+    }
+
+    @Override
+    public void touchHeartbeat(Long taskId) {
+        aiTaskDao.touchHeartbeat(taskId);
+    }
+
+    @Override
+    public List<AiTaskEntity> findStaleRunning(LocalDateTime timeout, int limit) {
+        return aiTaskDao.findStaleRunning(timeout, limit).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
     private AiTaskPO toPO(AiTaskEntity entity) {
         return AiTaskPO.builder()
                 .id(entity.getTaskId())
@@ -64,6 +97,11 @@ public class AiTaskRepository implements IAiTaskRepository {
                 .errorMsg(entity.getErrorMsg())
                 .createTime(entity.getCreateTime())
                 .updateTime(entity.getUpdateTime())
+                .startedAt(entity.getStartedAt())
+                .heartbeatAt(entity.getHeartbeatAt())
+                .retryCount(entity.getRetryCount())
+                .nextRetryAt(entity.getNextRetryAt())
+                .workerId(entity.getWorkerId())
                 .isDeleted(0)
                 .build();
     }
@@ -84,6 +122,11 @@ public class AiTaskRepository implements IAiTaskRepository {
                 .errorMsg(po.getErrorMsg())
                 .createTime(po.getCreateTime())
                 .updateTime(po.getUpdateTime())
+                .startedAt(po.getStartedAt())
+                .heartbeatAt(po.getHeartbeatAt())
+                .retryCount(po.getRetryCount())
+                .nextRetryAt(po.getNextRetryAt())
+                .workerId(po.getWorkerId())
                 .build();
     }
 }

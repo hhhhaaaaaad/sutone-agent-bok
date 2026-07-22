@@ -12,24 +12,16 @@ import java.util.function.Consumer;
  */
 public interface IAiWritingService {
 
-    /**
-     * 提交 AI 写作任务
-     */
     AiTaskEntity submitTask(Long userId, Long draftId, String taskTypeCode, Map<String, Object> promptParams, Boolean enableIllustration);
 
-    /**
-     * 查询任务详情
-     */
     AiTaskEntity queryTask(Long taskId, Long userId);
 
-    /**
-     * 流式生成写作内容
-     */
     void generateStream(Long taskId, Long userId, Consumer<AiWritingStreamEventVO> eventConsumer);
 
-    /**
-     * 查询草稿关联的最近任务列表
-     */
     List<AiTaskEntity> queryTaskList(Long draftId, Long userId, int limit);
 
+    /**
+     * MQ Consumer 调用：执行任务（不依赖 HTTP/Servlet）
+     */
+    void executeTask(Long taskId);
 }
