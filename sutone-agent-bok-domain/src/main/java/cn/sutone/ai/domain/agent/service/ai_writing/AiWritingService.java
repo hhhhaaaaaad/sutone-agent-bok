@@ -28,6 +28,7 @@ import io.reactivex.rxjava3.core.Flowable;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +54,9 @@ public class AiWritingService implements IAiWritingService {
     private static final String AUTHOR_GENERATOR = "agent_writing_generator";
     private static final String AUTHOR_REVIEWER = "agent_writing_reviewer";
     private static final String EVENT_TYPE_CREATED = "AI_WRITING_TASK_CREATED";
-    private static final String MQ_TOPIC = "ai-writing-task";
+
+    @Value("${ai-writing.mq.topic:ai-writing-task}")
+    private String mqTopic;
 
     private static final Map<String, String> AUTHOR_PHASE_MAP = Map.of(
             AUTHOR_ANALYST, "analyzing", AUTHOR_GENERATOR, "generating", AUTHOR_REVIEWER, "reviewing");
@@ -105,16 +108,16 @@ public class AiWritingService implements IAiWritingService {
             draft.checkEditable();
             AiWritingTaskTypeVO taskType = AiWritingTaskTypeVO.fromCode(taskTypeCode);
             String prompt = buildPrompt(draft, taskType, promptParams);
-            Long taskId = aiTaskRepository.nextTaskId();
-            AiTaskEntity task = AiTaskEntity.initPending(taskId, userId, draftId, taskType, prompt, enableIllustration);
+            AiTaskEntity task = AiTaskEntity.initPending(userId, draftId, taskType, prompt, enableIllustration);
             aiTaskRepository.save(task);
+            Long taskId = task.getTaskId();
 
-            // 同事务保存 Outbox 事件
-            AiTaskMessage message = AiTaskMessage.builder()
-                    .taskId(taskId).eventId(taskId).createdAt(java.time.LocalDateTime.now().toString()).build();
-            OutboxEventEntity outboxEvent = OutboxEventEntity.newEvent(
-                    taskId, EVENT_TYPE_CREATED, MQ_TOPIC, JSON.toJSONString(message));
+            // 先以占位 payload 保存 Outbox 拿到真实 eventId，再用真实 eventId 更新 payload
+            OutboxEventEntity outboxEvent = OutboxEventEntity.newEvent(taskId, EVENT_TYPE_CREATED, mqTopic, "{}");
             outboxEventRepository.save(outboxEvent);
+            AiTaskMessage message = AiTaskMessage.builder()
+                    .taskId(taskId).eventId(outboxEvent.getEventId()).createdAt(java.time.LocalDateTime.now().toString()).build();
+            outboxEventRepository.updatePayload(outboxEvent.getEventId(), JSON.toJSONString(message));
 
             log.info("任务提交 taskId={} eventId={}", taskId, outboxEvent.getEventId());
             return task;
@@ -219,9 +222,17 @@ public class AiWritingService implements IAiWritingService {
         }
         // 抢占已由 Consumer 的 claimTask 原子完成，此处不再重复更新状态
 
+        // 心跳节流：最多每 5 秒写一次 DB，避免每个 token 都触发写操作
+        final long heartbeatIntervalMs = 5_000L;
+        final long[] lastHeartbeat = {System.currentTimeMillis()};
+
         try {
             String formattedContent = agentWritingRunner.run(task, event -> {
-                aiTaskRepository.touchHeartbeat(taskId);
+                long now = System.currentTimeMillis();
+                if (now - lastHeartbeat[0] >= heartbeatIntervalMs) {
+                    aiTaskRepository.touchHeartbeat(taskId);
+                    lastHeartbeat[0] = now;
+                }
                 taskEventPublisher.publish(taskId, event);
             });
 
@@ -237,7 +248,7 @@ public class AiWritingService implements IAiWritingService {
             log.info("executeTask 完成 taskId={}", taskId);
         } catch (RetryableAgentException e) {
             log.error("executeTask 可重试异常 taskId={}: {}", taskId, e.getMessage());
-            aiTaskRepository.markRetrying(taskId, safeMsg(e));
+            aiTaskRepository.markRetryingImmediate(taskId, safeMsg(e));
             throw e;
         } catch (Exception e) {
             log.error("executeTask 不可恢复错误 taskId={}: {}", taskId, e.getMessage(), e);

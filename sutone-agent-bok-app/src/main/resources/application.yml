@@ -3,3 +3,28 @@ spring:
     name: sutone-agent-bok-app
   profiles:
     active: docker-local
+
+# RocketMQ 默认配置（所有环境共用，profile 可按需覆盖）
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}
+  producer:
+    group: ai-writing-producer-group
+    send-message-timeout: 10000
+    retry-times-when-send-failed: 2
+
+# AI 写作 MQ 自定义配置
+ai-writing:
+  mq:
+    topic: ai-writing-task
+    consumer-group: ai-writing-worker-group
+    consume-thread-min: 2
+    consume-thread-max: 4
+    max-reconsume-times: 3
+  outbox:
+    publish-delay-ms: 2000
+    batch-size: 100
+    max-retry-count: 5
+    sending-timeout-minutes: 5
+  recovery:
+    running-timeout-minutes: 5
+    max-retry-count: 3

@@ -113,8 +113,10 @@ public class MemoryExtractor {
         // 调用 LLM
         String llmResponse = callLlm(userPrompt);
         if (llmResponse == null || llmResponse.isBlank()) {
+            log.info("MemoryExtractor LLM 返回空");
             return Collections.emptyList();
         }
+        log.info("MemoryExtractor LLM 原始响应 (前200字符): {}", llmResponse.substring(0, Math.min(200, llmResponse.length())));
 
         // 防御性 JSON 解析
         return parseResponse(llmResponse);

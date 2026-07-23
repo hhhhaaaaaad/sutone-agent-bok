@@ -83,30 +83,6 @@ memory:
     min: 0.1
     max: 1.0
 
-# RocketMQ 配置
-rocketmq:
-  name-server: ${ROCKETMQ_NAMESRV_ADDR:localhost:9876}
-  producer:
-    group: ai-writing-producer-group
-    send-message-timeout: 3000
-    retry-times-when-send-failed: 2
-
-# AI 写作 MQ 自定义配置
-ai-writing:
-  mq:
-    topic: ai-writing-task
-    consumer-group: ai-writing-worker-group
-    consume-thread-min: 2
-    consume-thread-max: 4
-    max-reconsume-times: 3
-  outbox:
-    publish-delay-ms: 2000
-    batch-size: 100
-    max-retry-count: 5
-  recovery:
-    running-timeout-minutes: 5
-    max-retry-count: 3
-
 logging:
   level:
     root: info

@@ -61,15 +61,24 @@ public class MemoryManager {
     /** V3 Pipeline 主流程 */
     private void add(Long userId, Long agentId, String sessionId,
                      List<Map<String, String>> messages) {
-        if (messages == null || messages.isEmpty()) return;
+        if (messages == null || messages.isEmpty()) {
+            log.info("记忆抽取跳过: 无消息内容");
+            return;
+        }
 
-        // Phase 0: 上下文收集 — 从 chat_message 表取最近 10 条
-        List<String> lastMessages = memoryRepository.getLastMessages(sessionId, 10);
+        log.info("记忆抽取开始: userId={}, sessionId={}, msgCount={}", userId, sessionId, messages.size());
 
-        // Phase 1: 已有记忆检索 — embed 新消息 → 向量搜索 top-10
+        // Phase 0: context collection — get last 15 from chat_message (for LLM context)
+        List<String> historyMessages = memoryRepository.getLastMessages(sessionId, 15);
+
+        log.info("记忆抽取开始: userId={}, sessionId={}, msgCount={}",
+                userId, sessionId, messages.size());
+
+        // Phase 1: existing memory retrieval — embed all messages → vector search top-10
         String combinedText = messages.stream()
                 .map(m -> m.getOrDefault("content", ""))
                 .collect(Collectors.joining("\n"));
+        log.info("Phase 1: 开始 embedding, textLen={}", combinedText.length());
         float[] queryEmbedding = embeddingClient.embed(combinedText);
 
         List<MemoryRecordEntity> existingMemories;
@@ -85,8 +94,10 @@ public class MemoryManager {
             existingMemories = keywordResults != null ? keywordResults : Collections.emptyList();
         }
 
-        // Phase 2: LLM 抽取
-        List<MemoryCandidate> candidates = memoryExtractor.extract(existingMemories, messages, lastMessages);
+        // Phase 2: LLM 抽取（完整对话历史由前端传入）
+        log.info("Phase 2: 开始 LLM 抽取, existingMemories={}, messages={}", existingMemories.size(), messages.size());
+        List<MemoryCandidate> candidates = memoryExtractor.extract(existingMemories, messages, historyMessages);
+        log.info("Phase 2: LLM 抽取完成, candidates={}", candidates.size());
         if (candidates.isEmpty()) return;
 
         // Phase 3: 批量 embedding
@@ -148,6 +159,7 @@ public class MemoryManager {
         }
 
         // Phase 7: 批量持久化 — MySQL(vector_status=PENDING) + Qdrant + 标记SYNCED
+        log.info("Phase 7: 开始持久化, toInsert={}", toInsert.size());
         for (int i = 0; i < toInsert.size(); i++) {
             MemoryRecordEntity record = toInsert.get(i);
             try {
@@ -170,6 +182,7 @@ public class MemoryManager {
                 log.debug("记忆写入跳过: hash={} error={}", record.getContentHash(), e.getMessage());
             }
         }
+        log.info("记忆抽取完成: userId={}, sessionId={}, inserted={}", userId, sessionId, toInsert.size());
     }
 
     /** 混合检索 */

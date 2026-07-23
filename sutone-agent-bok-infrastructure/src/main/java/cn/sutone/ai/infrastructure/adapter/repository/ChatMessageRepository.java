@@ -1,6 +1,7 @@
 package cn.sutone.ai.infrastructure.adapter.repository;
 
 import cn.sutone.ai.domain.agent.adapter.repository.IChatMessageRepository;
+import cn.sutone.ai.domain.agent.model.valobj.ChatMessageVO;
 import cn.sutone.ai.infrastructure.dao.IChatMessageDao;
 import cn.sutone.ai.infrastructure.dao.po.ChatMessagePO;
 import org.springframework.stereotype.Repository;
@@ -49,6 +50,36 @@ public class ChatMessageRepository implements IChatMessageRepository {
         Collections.reverse(messages);
         return messages.stream()
                 .map(m -> "[" + m.getRole() + "]: " + m.getContent())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ChatMessageVO> getHistoryByUserAgent(Long userId, String agentId, int limit) {
+        List<ChatMessagePO> messages = chatMessageDao.selectHistoryByUserAgent(userId, agentId, limit);
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return messages.stream()
+                .map(m -> ChatMessageVO.builder()
+                        .role(m.getRole())
+                        .content(m.getContent())
+                        .createTime(m.getCreateTime())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ChatMessageVO> getHistoryBySessionId(String sessionId, int limit) {
+        List<ChatMessagePO> messages = chatMessageDao.selectHistoryBySessionId(sessionId, limit);
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return messages.stream()
+                .map(m -> ChatMessageVO.builder()
+                        .role(m.getRole())
+                        .content(m.getContent())
+                        .createTime(m.getCreateTime())
+                        .build())
                 .collect(Collectors.toList());
     }
 }

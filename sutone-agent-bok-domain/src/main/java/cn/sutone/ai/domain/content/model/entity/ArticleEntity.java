@@ -63,6 +63,11 @@ public class ArticleEntity {
         this.status = ArticleStatusVO.OFFLINE;
     }
 
+    public void markPublished() {
+        this.publishTime = LocalDateTime.now();
+        this.status = ArticleStatusVO.PUBLISHED;
+    }
+
     public void increaseViewCount() {
         if (null != meta) {
             meta.increaseViewCount();

@@ -1,5 +1,7 @@
 package cn.sutone.ai.domain.agent.adapter.repository;
 
+import cn.sutone.ai.domain.agent.model.valobj.ChatMessageVO;
+
 import java.util.List;
 
 /**
@@ -15,4 +17,10 @@ public interface IChatMessageRepository {
 
     /** 按 userId + agentId 获取最近 N 条消息（Session 恢复用） */
     List<String> getLastMessagesByUserAgent(Long userId, String agentId, int limit);
+
+    /** 按 userId + agentId 获取最近 N 条消息（供前端展示历史对话） */
+    List<ChatMessageVO> getHistoryByUserAgent(Long userId, String agentId, int limit);
+
+    /** 按 sessionId 获取最近 N 条消息（供前端展示历史对话） */
+    List<ChatMessageVO> getHistoryBySessionId(String sessionId, int limit);
 }

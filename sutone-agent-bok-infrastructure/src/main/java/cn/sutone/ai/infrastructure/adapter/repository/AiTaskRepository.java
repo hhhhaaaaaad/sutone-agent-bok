@@ -25,13 +25,11 @@ public class AiTaskRepository implements IAiTaskRepository {
     }
 
     @Override
-    public Long nextTaskId() {
-        return aiTaskDao.nextTaskId();
-    }
-
-    @Override
     public Long save(AiTaskEntity aiTaskEntity) {
-        aiTaskDao.insert(toPO(aiTaskEntity));
+        AiTaskPO po = toPO(aiTaskEntity);
+        aiTaskDao.insert(po);
+        // 回填自增主键
+        aiTaskEntity.setTaskId(po.getId());
         return aiTaskEntity.getTaskId();
     }
 
@@ -70,6 +68,11 @@ public class AiTaskRepository implements IAiTaskRepository {
     @Override
     public void markRetrying(Long taskId, String errorMsg) {
         aiTaskDao.markRetrying(taskId, errorMsg);
+    }
+
+    @Override
+    public void markRetryingImmediate(Long taskId, String errorMsg) {
+        aiTaskDao.markRetryingImmediate(taskId, errorMsg);
     }
 
     @Override

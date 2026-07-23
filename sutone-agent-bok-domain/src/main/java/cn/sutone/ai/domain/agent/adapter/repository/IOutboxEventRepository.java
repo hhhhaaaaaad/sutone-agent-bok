@@ -15,7 +15,30 @@ public interface IOutboxEventRepository {
 
     void markPublished(Long eventId);
 
-    void scheduleRetry(Long eventId, String errorMsg);
+    /**
+     * @param retryCount 当前重试次数，用于计算指数退避延迟
+     */
+    void scheduleRetry(Long eventId, int retryCount, String errorMsg);
 
     void markFailed(Long eventId, String errorMsg);
+
+    /**
+     * 更新事件 payload（用于在拿到真实 eventId 后回填消息体）
+     */
+    void updatePayload(Long eventId, String payload);
+
+    /**
+     * 检查指定 aggregateId 是否已有未投递事件（NEW/RETRYING/SENDING）
+     */
+    boolean hasPendingEventForAggregate(String aggregateId);
+
+    /**
+     * 恢复超时的 SENDING 事件（被崩溃的 Publisher 遗留），返回恢复数量
+     */
+    int recoverStaleSending(int timeoutMinutes);
+
+    /**
+     * 待投递事件数量（用于监控指标）
+     */
+    int countPublishableEvents();
 }

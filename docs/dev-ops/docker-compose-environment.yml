@@ -98,10 +98,11 @@ services:
     networks:
       - my-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "echo 'STATS' | nc -w 2 localhost 9876"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9876"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # RocketMQ Broker
   rocketmq-broker:
@@ -121,6 +122,12 @@ services:
         condition: service_healthy
     networks:
       - my-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/10911"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # RocketMQ Dashboard (管理控制台, 可选)
   rocketmq-dashboard:
