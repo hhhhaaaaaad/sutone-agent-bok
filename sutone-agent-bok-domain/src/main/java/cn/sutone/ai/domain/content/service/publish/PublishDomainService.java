@@ -62,8 +62,9 @@ public class PublishDomainService implements IPublishDomainService {
     private ArticleEntity rePublishFromExisting(DraftEntity draftEntity, ArticleEntity articleEntity, List<String> tags) {
         // 1. 草稿状态改为 已发布
         draftEntity.markPublished();
-        // 2. 将文章内容改为草稿的
+        // 2. 将文章内容改为草稿的，并将文章状态重新设为已发布
         articleEntity.updateFromDraft(draftEntity);
+        articleEntity.markPublished();
         articleEntity.updateMeta(tags);
         // 3. 更新草稿和文章到数据库
         draftRepository.update(draftEntity);

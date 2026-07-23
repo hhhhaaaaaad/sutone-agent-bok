@@ -1,6 +1,8 @@
 package cn.sutone.ai.trigger.http;
 
 import cn.sutone.ai.api.response.Response;
+import cn.sutone.ai.domain.agent.adapter.repository.IChatMessageRepository;
+import cn.sutone.ai.domain.agent.model.valobj.ChatMessageVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
 import cn.sutone.ai.domain.agent.service.memory.MemoryManager;
 import cn.sutone.ai.types.enums.ResponseCode;
@@ -34,6 +36,9 @@ public class WritingChatController {
 
     @Resource
     private MemoryManager memoryManager;
+
+    @Resource
+    private IChatMessageRepository chatMessageRepository;
 
     /** 从 JWT 获取当前用户 ID */
     private Long getCurrentUserId() {
@@ -133,20 +138,57 @@ public class WritingChatController {
         return emitter;
     }
 
-    /** 触发记忆抽取（用户保存文章后调用） */
+    /** 获取历史对话消息 */
+    @GetMapping("/history")
+    public Response<List<ChatMessageVO>> getHistory(
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        try {
+            Long userId = getCurrentUserId();
+            if (userId == null) {
+                return Response.<List<ChatMessageVO>>builder()
+                        .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
+                        .info("用户未登录")
+                        .build();
+            }
+            List<ChatMessageVO> history;
+            if (sessionId != null && !sessionId.isBlank()) {
+                // 按会话加载（精确匹配）
+                history = chatMessageRepository.getHistoryBySessionId(sessionId, limit);
+            } else {
+                // 回退：按用户+agent 加载
+                history = chatMessageRepository.getHistoryByUserAgent(userId, CHAT_AGENT_ID, limit);
+            }
+            return Response.<List<ChatMessageVO>>builder()
+                    .code(ResponseCode.SUCCESS.getCode())
+                    .info(ResponseCode.SUCCESS.getInfo())
+                    .data(history)
+                    .build();
+        } catch (Exception e) {
+            log.error("获取历史对话消息失败", e);
+            return Response.<List<ChatMessageVO>>builder()
+                    .code(ResponseCode.UN_ERROR.getCode())
+                    .info(ResponseCode.UN_ERROR.getInfo())
+                    .build();
+        }
+    }
+
+    /** 触发记忆抽取（用户保存文章后调用）
+     *  body: { sessionId: "xxx", messages: [{role:"user",content:"..."},{role:"assistant",content:"..."},...] }
+     *  messages 为完整对话历史，由前端直接传入
+     */
     @PostMapping("/save")
     public Response<String> save(@RequestBody Map<String, Object> body) {
         try {
             String sessionId = (String) body.get("sessionId");
             Long userId = getCurrentUserId();
 
-            // 异步触发记忆抽取
             if (userId != null && sessionId != null) {
-                memoryManager.addAsync(userId, Long.parseLong(CHAT_AGENT_ID), sessionId,
-                        List.of(
-                                Map.of("role", "user", "content", body.getOrDefault("message", "").toString()),
-                                Map.of("role", "assistant", "content", body.getOrDefault("response", "").toString())
-                        ));
+                @SuppressWarnings("unchecked")
+                List<Map<String, String>> messages = (List<Map<String, String>>) body.get("messages");
+                if (messages != null && !messages.isEmpty()) {
+                    memoryManager.addAsync(userId, Long.parseLong(CHAT_AGENT_ID), sessionId, messages);
+                }
             }
 
             return Response.<String>builder()

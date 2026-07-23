@@ -34,4 +34,22 @@ public interface IChatMessageDao {
             LIMIT #{limit}
             """)
     List<ChatMessagePO> selectLastNByUserAgent(@Param("userId") Long userId, @Param("agentId") String agentId, @Param("limit") int limit);
+
+    @Select("""
+            SELECT id, user_id, session_id, agent_id, role, content, create_time
+            FROM chat_message
+            WHERE user_id = #{userId} AND agent_id = #{agentId}
+            ORDER BY create_time ASC
+            LIMIT #{limit}
+            """)
+    List<ChatMessagePO> selectHistoryByUserAgent(@Param("userId") Long userId, @Param("agentId") String agentId, @Param("limit") int limit);
+
+    @Select("""
+            SELECT id, user_id, session_id, agent_id, role, content, create_time
+            FROM chat_message
+            WHERE session_id = #{sessionId}
+            ORDER BY create_time ASC
+            LIMIT #{limit}
+            """)
+    List<ChatMessagePO> selectHistoryBySessionId(@Param("sessionId") String sessionId, @Param("limit") int limit);
 }

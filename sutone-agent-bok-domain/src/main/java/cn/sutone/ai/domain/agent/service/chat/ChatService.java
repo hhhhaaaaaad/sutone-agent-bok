@@ -75,6 +75,9 @@ public class ChatService implements IChatService {
         String cacheKey = userId + "_" + agentId;
         userSessions.put(cacheKey, sessionId);
         
+        // 注入历史对话上下文
+        recoverHistoryContext(userId, agentId, null, aiAgentRegisterVO, sessionId);
+        
         return sessionId;
     }
 
@@ -91,8 +94,7 @@ public class ChatService implements IChatService {
         String sessionId = userSessions.get(cacheKey);
         if (sessionId == null) {
             sessionId = createSession(agentId, userId);
-            // Session 恢复：从 DB 加载最近对话前缀
-            recoverHistoryContext(userId, agentId, message, aiAgentRegisterVO, sessionId);
+            // createSession 内部已调用 recoverHistoryContext 注入历史上下文
         }
 
         return handleMessage(agentId, userId, sessionId, message);
@@ -111,7 +113,10 @@ public class ChatService implements IChatService {
 
             InMemoryRunner runner = vo.getRunner();
             // 将历史消息前缀拼入新 session 的 context
-            String prefix = "【历史对话上下文】\n" + String.join("\n", history) + "\n\n【当前消息】\n";
+            String prefix = "【历史对话上下文】\n" + String.join("\n", history);
+            if (currentMessage != null && !currentMessage.isBlank()) {
+                prefix += "\n\n【当前消息】\n";
+            }
             Content prefixContent = Content.fromParts(Part.fromText(prefix));
             runner.runAsync(userId, newSessionId, prefixContent).blockingForEach(e -> {});
             log.info("Session 恢复: userId={} agentId={} 恢复 {} 条历史", userId, agentId, history.size());
@@ -179,17 +184,30 @@ public class ChatService implements IChatService {
                     if (!response.isBlank()) {
                         persistMessage(userId, sessionId, agentId, "assistant", response);
                     }
+                })
+                .doOnError(error -> {
+                    log.error("流式对话异常 sessionId={} agentId={}: {}", sessionId, agentId, error.getMessage(), error);
+                    String response = aiResponse.toString();
+                    if (!response.isBlank()) {
+                        persistMessage(userId, sessionId, agentId, "assistant", response);
+                    }
                 });
     }
 
     /** 持久化对话消息，不影响主流程 */
     private void persistMessage(String userId, String sessionId, String agentId, String role, String content) {
         try {
-            Long uid = null;
-            try { uid = Long.parseLong(userId); } catch (NumberFormatException ignored) {}
+            Long uid;
+            try {
+                uid = Long.parseLong(userId);
+            } catch (NumberFormatException e) {
+                // 非数字 userId（如 "admin"），使用 0L 作为占位
+                log.warn("对话消息持久化: userId 非数字, 使用 0L 占位, userId={}, sessionId={}, role={}", userId, sessionId, role);
+                uid = 0L;
+            }
             chatMessageRepository.save(uid, sessionId, agentId, role, content);
         } catch (Exception e) {
-            log.warn("对话消息持久化失败 sessionId={} role={}: {}", sessionId, role, e.getMessage());
+            log.error("对话消息持久化失败 userId={} sessionId={} role={}: {}", userId, sessionId, role, e.getMessage(), e);
         }
     }
 
@@ -202,11 +220,13 @@ public class ChatService implements IChatService {
         }
 
         List<Part> parts = new ArrayList<>();
+        StringBuilder userContentBuilder = new StringBuilder();
 
         List<ChatCommandEntity.Content.Text> texts = chatCommandEntity.getTexts();
         if (null != texts && !texts.isEmpty()) {
             for (ChatCommandEntity.Content.Text text : texts) {
                 parts.add(Part.fromText(text.getMessage()));
+                userContentBuilder.append(text.getMessage());
             }
         }
 
@@ -226,6 +246,13 @@ public class ChatService implements IChatService {
 
         Content content = Content.builder().role("user").parts(parts).build();
 
+        // 持久化用户消息
+        String userContent = userContentBuilder.toString();
+        if (!userContent.isBlank()) {
+            persistMessage(chatCommandEntity.getUserId(), chatCommandEntity.getSessionId(),
+                    chatCommandEntity.getAgentId(), "user", userContent);
+        }
+
         // 获取运行体
         InMemoryRunner runner = aiAgentRegisterVO.getRunner();
 
@@ -233,6 +260,13 @@ public class ChatService implements IChatService {
 
         List<String> outputs = new ArrayList<>();
         events.blockingForEach(event -> outputs.add(event.stringifyContent()));
+
+        // 持久化 AI 回复
+        String response = String.join("\n", outputs);
+        if (!response.isBlank()) {
+            persistMessage(chatCommandEntity.getUserId(), chatCommandEntity.getSessionId(),
+                    chatCommandEntity.getAgentId(), "assistant", response);
+        }
 
         return outputs;
     }
