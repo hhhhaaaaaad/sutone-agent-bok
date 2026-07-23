@@ -75,10 +75,10 @@ public class TaskEventPublisher implements ITaskEventPublisher {
         StreamMessageId startId = parseEventId(lastEventId);
         Map<StreamMessageId, Map<String, String>> result;
         if (startId != null) {
-            result = stream.read(StreamReadArgs.greaterThan(startId));
+            result = stream.read(StreamReadArgs.greaterThan(startId).count(500));
         } else {
             // 无 lastEventId：从头读取，避免漏掉已推送的事件
-            result = stream.read(StreamReadArgs.greaterThan(StreamMessageId.ALL));
+            result = stream.read(StreamReadArgs.greaterThan(StreamMessageId.ALL).count(500));
         }
         if (result == null || result.isEmpty()) return List.of();
         return result.entrySet().stream()

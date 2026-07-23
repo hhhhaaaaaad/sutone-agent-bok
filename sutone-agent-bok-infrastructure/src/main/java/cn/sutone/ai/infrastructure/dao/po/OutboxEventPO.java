@@ -23,6 +23,7 @@ public class OutboxEventPO {
     private LocalDateTime nextRetryAt;
     private LocalDateTime publishedAt;
     private String lastError;
+    private String publisherId;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

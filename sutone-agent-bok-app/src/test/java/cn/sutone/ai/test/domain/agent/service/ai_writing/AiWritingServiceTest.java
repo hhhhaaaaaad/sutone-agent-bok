@@ -1,17 +1,20 @@
 package cn.sutone.ai.test.domain.agent.service.ai_writing;
 
 import cn.sutone.ai.domain.agent.adapter.repository.IAiTaskRepository;
+import cn.sutone.ai.domain.agent.adapter.repository.IOutboxEventRepository;
 import cn.sutone.ai.domain.agent.model.entity.AiTaskEntity;
+import cn.sutone.ai.domain.agent.model.entity.OutboxEventEntity;
 import cn.sutone.ai.domain.agent.model.valobj.AiAgentConfigTableVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiTaskStatusVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingStreamEventVO;
 import cn.sutone.ai.domain.agent.model.valobj.AiWritingTaskTypeVO;
 import cn.sutone.ai.domain.agent.service.IChatService;
+import cn.sutone.ai.domain.agent.service.ITaskEventPublisher;
+import cn.sutone.ai.domain.agent.service.ai_writing.AgentWritingRunner;
 import cn.sutone.ai.domain.agent.service.ai_writing.AiWritingService;
 import cn.sutone.ai.domain.agent.service.memory.MemoryManager;
 import cn.sutone.ai.domain.agent.service.ratelimit.RateLimitService;
 import cn.sutone.ai.domain.content.model.entity.DraftEntity;
-import cn.sutone.ai.domain.content.model.valobj.DraftStatusVO;
 import cn.sutone.ai.domain.content.service.draft.DraftDomainService;
 import cn.sutone.ai.types.exception.AppException;
 import com.google.adk.events.Event;
@@ -53,6 +56,9 @@ class AiWritingServiceTest {
     private IAiTaskRepository aiTaskRepository;
 
     @Mock
+    private IOutboxEventRepository outboxEventRepository;
+
+    @Mock
     private DraftDomainService draftDomainService;
 
     @Mock
@@ -63,6 +69,12 @@ class AiWritingServiceTest {
 
     @Mock
     private MemoryManager memoryManager;
+
+    @Mock
+    private AgentWritingRunner agentWritingRunner;
+
+    @Mock
+    private ITaskEventPublisher taskEventPublisher;
 
     @Mock
     private RLock rLock;
@@ -76,11 +88,24 @@ class AiWritingServiceTest {
 
     @BeforeEach
     void setUp() throws InterruptedException {
-        aiWritingService = new AiWritingService(chatService, aiTaskRepository, draftDomainService,
-                rateLimitService, redissonClient, memoryManager);
-        when(rateLimitService.tryAcquire(anyLong())).thenReturn(true);
-        when(redissonClient.getLock(anyString())).thenReturn(rLock);
-        when(rLock.tryLock(0, 5, TimeUnit.SECONDS)).thenReturn(true);
+        aiWritingService = new AiWritingService(chatService, aiTaskRepository, outboxEventRepository,
+                draftDomainService, rateLimitService, redissonClient, memoryManager,
+                agentWritingRunner, taskEventPublisher);
+        lenient().when(rateLimitService.tryAcquire(anyLong())).thenReturn(true);
+        lenient().when(redissonClient.getLock(anyString())).thenReturn(rLock);
+        lenient().when(rLock.tryLock(0, 5, TimeUnit.SECONDS)).thenReturn(true);
+        // 模拟 save 后通过 @Options(useGeneratedKeys) 写回 taskId
+        lenient().doAnswer(invocation -> {
+            AiTaskEntity entity = invocation.getArgument(0);
+            entity.setTaskId(TASK_ID);
+            return TASK_ID;
+        }).when(aiTaskRepository).save(any(AiTaskEntity.class));
+        // 模拟 outbox save 后写回 eventId
+        lenient().doAnswer(invocation -> {
+            OutboxEventEntity event = invocation.getArgument(0);
+            event.setEventId(1L);
+            return null;
+        }).when(outboxEventRepository).save(any(OutboxEventEntity.class));
     }
 
     @Nested
@@ -92,15 +117,16 @@ class AiWritingServiceTest {
         void shouldCreatePendingTask() {
             DraftEntity draft = editingDraft();
             when(draftDomainService.queryDraftDetail(DRAFT_ID, USER_ID)).thenReturn(draft);
-            when(aiTaskRepository.nextTaskId()).thenReturn(TASK_ID);
 
             AiTaskEntity result = aiWritingService.submitTask(USER_ID, DRAFT_ID, "GENERATE_OUTLINE", Map.of("title", "Java 入门"), false);
 
             assertNotNull(result);
-            assertEquals(TASK_ID, result.getTaskId());
+            assertEquals(TASK_ID, result.getTaskId()); // 由 mock save 回填
             assertEquals(AiTaskStatusVO.PENDING, result.getStatus());
             assertEquals(AiWritingTaskTypeVO.GENERATE_OUTLINE, result.getTaskType());
             verify(aiTaskRepository).save(any(AiTaskEntity.class));
+            verify(outboxEventRepository).save(any(OutboxEventEntity.class));
+            verify(outboxEventRepository).updatePayload(eq(1L), anyString());
         }
 
         @Test
@@ -290,6 +316,8 @@ class AiWritingServiceTest {
     }
 
     private static AiTaskEntity pendingTask() {
-        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
+        AiTaskEntity task = AiTaskEntity.initPending(USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
+        task.setTaskId(TASK_ID);
+        return task;
     }
 }

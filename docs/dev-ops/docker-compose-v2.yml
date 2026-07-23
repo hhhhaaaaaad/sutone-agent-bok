@@ -17,8 +17,9 @@ services:
       - SPRING_DATASOURCE_PASSWORD=123456
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
+      - ROCKETMQ_NAMESRV_ADDR=rocketmq-namesrv:9876
       - JWT_SECRET=${JWT_SECRET:-sutone-agent-bok-jwt-secret-key-2026}
-      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_PROFILES_ACTIVE=docker-local
       # Qdrant
       - QDRANT_URL=http://qdrant:6333
       - MEMORY_VECTOR_STORE=qdrant
@@ -32,6 +33,8 @@ services:
       - mysql
       - redis
       - qdrant
+      - rocketmq-namesrv
+      - rocketmq-broker
     volumes:
       - ./log:/data/log
     logging:
@@ -41,6 +44,11 @@ services:
         max-file: "3"
     networks:
       - my-network
+
+  # Full-Compose 模式使用 Docker DNS 对外发布 Broker 地址。
+  rocketmq-broker:
+    volumes:
+      - ./rocketmq/broker/conf/broker-docker.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf:ro
 
   sutone-agent-bok-front:
     build:

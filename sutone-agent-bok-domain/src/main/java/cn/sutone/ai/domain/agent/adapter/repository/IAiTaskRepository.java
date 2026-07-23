@@ -10,8 +10,9 @@ import java.util.List;
  */
 public interface IAiTaskRepository {
 
-    Long nextTaskId();
-
+    /**
+     * 保存任务并回填自增主键到 entity.taskId
+     */
     Long save(AiTaskEntity aiTaskEntity);
 
     void update(AiTaskEntity aiTaskEntity);
@@ -30,6 +31,8 @@ public interface IAiTaskRepository {
     void markFailed(Long taskId, String errorMsg);
 
     void markRetrying(Long taskId, String errorMsg);
+
+    void markRetryingImmediate(Long taskId, String errorMsg);
 
     void touchHeartbeat(Long taskId);
 

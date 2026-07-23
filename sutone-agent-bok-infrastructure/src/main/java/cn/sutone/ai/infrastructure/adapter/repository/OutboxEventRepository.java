@@ -6,10 +6,10 @@ import cn.sutone.ai.domain.agent.model.valobj.OutboxEventVO;
 import cn.sutone.ai.infrastructure.dao.IOutboxEventDao;
 import cn.sutone.ai.infrastructure.dao.po.OutboxEventPO;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Repository
@@ -23,13 +23,20 @@ public class OutboxEventRepository implements IOutboxEventRepository {
 
     @Override
     public void save(OutboxEventEntity event) {
-        dao.insert(toPO(event));
+        OutboxEventPO po = toPO(event);
+        dao.insert(po);
+        // 回填自增主键
+        event.setEventId(po.getEventId());
     }
 
     @Override
-    @Transactional
     public List<OutboxEventEntity> claimPublishable(int limit) {
-        return dao.claimPublishable(limit).stream()
+        // UPDATE 原子抢占行锁保证多实例安全，无需 @Transactional（两条 SQL 间无需原子回滚）
+        String publisherId = UUID.randomUUID().toString();
+        dao.claimPublishableBatch(publisherId, limit);
+
+        // Step 2: 根据 publisher_id 回查已抢占的事件
+        return dao.findClaimedByPublisherId(publisherId).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }
@@ -40,13 +47,35 @@ public class OutboxEventRepository implements IOutboxEventRepository {
     }
 
     @Override
-    public void scheduleRetry(Long eventId, String errorMsg) {
-        dao.scheduleRetry(eventId, LocalDateTime.now().plusSeconds(10), errorMsg);
+    public void scheduleRetry(Long eventId, int retryCount, String errorMsg) {
+        // Issue 4: 指数退避 min(10 * 2^retry, 600) 秒
+        long delaySeconds = Math.min(10L * (1L << Math.min(retryCount, 6)), 600L);
+        dao.scheduleRetry(eventId, LocalDateTime.now().plusSeconds(delaySeconds), errorMsg);
     }
 
     @Override
     public void markFailed(Long eventId, String errorMsg) {
         dao.markFailed(eventId, errorMsg);
+    }
+
+    @Override
+    public void updatePayload(Long eventId, String payload) {
+        dao.updatePayload(eventId, payload);
+    }
+
+    @Override
+    public boolean hasPendingEventForAggregate(String aggregateId) {
+        return dao.countPendingByAggregateId(aggregateId) > 0;
+    }
+
+    @Override
+    public int recoverStaleSending(int timeoutMinutes) {
+        return dao.recoverStaleSending(LocalDateTime.now().minusMinutes(timeoutMinutes));
+    }
+
+    @Override
+    public int countPublishableEvents() {
+        return dao.countPublishableEvents();
     }
 
     private OutboxEventPO toPO(OutboxEventEntity entity) {
@@ -61,6 +90,7 @@ public class OutboxEventRepository implements IOutboxEventRepository {
                 .nextRetryAt(entity.getNextRetryAt())
                 .publishedAt(entity.getPublishedAt())
                 .lastError(entity.getLastError())
+                .publisherId(entity.getPublisherId())
                 .createTime(entity.getCreateTime())
                 .updateTime(entity.getUpdateTime())
                 .build();
@@ -79,6 +109,7 @@ public class OutboxEventRepository implements IOutboxEventRepository {
                 .nextRetryAt(po.getNextRetryAt())
                 .publishedAt(po.getPublishedAt())
                 .lastError(po.getLastError())
+                .publisherId(po.getPublisherId())
                 .createTime(po.getCreateTime())
                 .updateTime(po.getUpdateTime())
                 .build();

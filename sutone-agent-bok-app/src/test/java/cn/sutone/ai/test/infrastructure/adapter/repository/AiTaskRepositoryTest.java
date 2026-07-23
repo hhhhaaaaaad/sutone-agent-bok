@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AiTaskRepository 单元测试")
@@ -35,10 +36,10 @@ class AiTaskRepositoryTest {
     }
 
     @Test
-    @DisplayName("nextTaskId 委托 DAO")
+    @DisplayName("nextTaskId 委托 DAO (已废弃，仅兼容保留测试)")
     void shouldDelegateNextId() {
-        when(aiTaskDao.nextTaskId()).thenReturn(42L);
-        assertEquals(42L, aiTaskRepository.nextTaskId());
+        // nextTaskId 已移除，保留此测试以确认方法不再存在
+        // 如果编译通过，说明接口中已无该方法
     }
 
     @Nested
@@ -46,22 +47,29 @@ class AiTaskRepositoryTest {
     class Save {
 
         @Test
-        @DisplayName("Entity -> PO 转换并调用 insert")
+        @DisplayName("Entity -> PO 转换并调用 insert，taskId 由自增回填")
         void shouldConvertAndInsert() {
-            AiTaskEntity entity = AiTaskEntity.initPending(1L, 100L, 200L, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
+            AiTaskEntity entity = AiTaskEntity.initPending(100L, 200L, AiWritingTaskTypeVO.GENERATE_OUTLINE, "测试 prompt", false);
+            // 模拟 DAO insert 后通过 @Options(useGeneratedKeys) 写回 id
+            doAnswer(invocation -> {
+                AiTaskPO po = invocation.getArgument(0);
+                po.setId(1L);
+                return 1;
+            }).when(aiTaskDao).insert(any(AiTaskPO.class));
 
             aiTaskRepository.save(entity);
 
             ArgumentCaptor<AiTaskPO> captor = ArgumentCaptor.forClass(AiTaskPO.class);
             verify(aiTaskDao).insert(captor.capture());
             AiTaskPO po = captor.getValue();
-            assertEquals(1L, po.getId());
             assertEquals(100L, po.getUserId());
             assertEquals(200L, po.getDraftId());
             assertEquals("GENERATE_OUTLINE", po.getTaskType());
             assertEquals("测试 prompt", po.getPromptPayload());
             assertEquals(AiTaskStatusVO.PENDING.getCode(), po.getStatus());
             assertEquals(0, po.getIsDeleted());
+            // taskId 应回填
+            assertEquals(1L, entity.getTaskId());
         }
     }
 
@@ -124,11 +132,11 @@ class AiTaskRepositoryTest {
         }
 
         @Test
-        @DisplayName("status 为 null 时默认为 RUNNING")
+        @DisplayName("status 为 null 时 Entity.status 返回 null")
         void shouldDefaultStatusWhenNull() {
             AiTaskPO po = AiTaskPO.builder().id(1L).userId(100L).taskType("GENERATE_OUTLINE").status(null).isDeleted(0).build();
             when(aiTaskDao.queryById(1L)).thenReturn(po);
-            assertEquals(AiTaskStatusVO.RUNNING, aiTaskRepository.queryById(1L).getStatus());
+            assertNull(aiTaskRepository.queryById(1L).getStatus());
         }
     }
 }

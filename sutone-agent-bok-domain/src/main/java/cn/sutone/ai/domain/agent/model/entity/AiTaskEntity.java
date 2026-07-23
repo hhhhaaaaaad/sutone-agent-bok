@@ -43,7 +43,7 @@ public class AiTaskEntity {
     /** 执行 Worker 标识 */
     private String workerId;
 
-    public static AiTaskEntity initPending(Long taskId, Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload, Boolean enableIllustration) {
+    public static AiTaskEntity initPending(Long userId, Long draftId, AiWritingTaskTypeVO taskType, String promptPayload, Boolean enableIllustration) {
         if (null == userId) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "用户ID不能为空");
         }
@@ -52,7 +52,6 @@ public class AiTaskEntity {
         }
         LocalDateTime now = LocalDateTime.now();
         return AiTaskEntity.builder()
-                .taskId(taskId)
                 .userId(userId)
                 .draftId(draftId)
                 .taskType(taskType)

@@ -108,12 +108,12 @@ public class AgentWritingRunner {
 
         // 配图
         List<IllustrationRequest> illustrationRequests = enableIllustration
-                ? analyzeIllustrations(task.getUserId().intValue(), responseBuilder.toString()) : List.of();
+                ? analyzeIllustrations(task.getUserId(), responseBuilder.toString()) : List.of();
         if (!illustrationRequests.isEmpty()) {
             eventConsumer.accept(statusEvent("illustrating", "正在生成配图..."));
             for (IllustrationRequest req : illustrationRequests) {
                 try {
-                    String drawXml = generateIllustration(task.getUserId().intValue(), req);
+                    String drawXml = generateIllustration(task.getUserId(), req);
                     if (null != drawXml && !drawXml.isBlank()) {
                         injectIllustration(responseBuilder, req.anchor(), drawXml, eventConsumer);
                     }
@@ -140,7 +140,7 @@ public class AgentWritingRunner {
                 .orElseThrow(() -> new AppException(ResponseCode.E0001.getCode(), "未找到 AI 技术写作智能体配置"));
     }
 
-    private List<IllustrationRequest> analyzeIllustrations(int userId, String articleContent) {
+    private List<IllustrationRequest> analyzeIllustrations(Long userId, String articleContent) {
         String prompt = buildIllustrationPrompt(articleContent);
         String sessionId = chatService.createSession(ILLUSTRATION_AGENT_ID, String.valueOf(userId));
         List<String> outputs = chatService.handleMessage(ILLUSTRATION_AGENT_ID, String.valueOf(userId), sessionId, prompt);
@@ -174,7 +174,7 @@ public class AgentWritingRunner {
                 """.formatted(articleContent);
     }
 
-    private String generateIllustration(int userId, IllustrationRequest req) {
+    private String generateIllustration(Long userId, IllustrationRequest req) {
         String drawSessionId = chatService.createSession(DRAWIO_AGENT_ID, String.valueOf(userId));
         String drawPrompt = """
                 请根据以下绘图需求，生成一个 draw.io 图表。

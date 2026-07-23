@@ -25,9 +25,9 @@ class AiTaskEntityTest {
         @Test
         @DisplayName("应正确初始化所有字段")
         void shouldInitAllFields() {
-            AiTaskEntity task = AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false);
+            AiTaskEntity task = AiTaskEntity.initPending(USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false);
 
-            assertEquals(TASK_ID, task.getTaskId());
+            assertNull(task.getTaskId()); // taskId 由 DB AUTO_INCREMENT 回填，创建时为 null
             assertEquals(USER_ID, task.getUserId());
             assertEquals(DRAFT_ID, task.getDraftId());
             assertEquals(AiWritingTaskTypeVO.GENERATE_OUTLINE, task.getTaskType());
@@ -44,14 +44,14 @@ class AiTaskEntityTest {
         @DisplayName("userId 为 null 时应抛出异常")
         void shouldThrowWhenUserIdNull() {
             assertThrows(AppException.class, () ->
-                    AiTaskEntity.initPending(TASK_ID, null, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false));
+                    AiTaskEntity.initPending(null, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false));
         }
 
         @Test
         @DisplayName("draftId 为 null 时应抛出异常")
         void shouldThrowWhenDraftIdNull() {
             assertThrows(AppException.class, () ->
-                    AiTaskEntity.initPending(TASK_ID, USER_ID, null, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false));
+                    AiTaskEntity.initPending(USER_ID, null, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false));
         }
     }
 
@@ -147,6 +147,6 @@ class AiTaskEntityTest {
     }
 
     private static AiTaskEntity pendingTask() {
-        return AiTaskEntity.initPending(TASK_ID, USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false);
+        return AiTaskEntity.initPending(USER_ID, DRAFT_ID, AiWritingTaskTypeVO.GENERATE_OUTLINE, PROMPT, false);
     }
 }

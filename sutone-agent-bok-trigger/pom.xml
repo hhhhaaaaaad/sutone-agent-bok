@@ -54,6 +54,10 @@
             <groupId>cn.sutone.ai</groupId>
             <artifactId>sutone-agent-bok-domain</artifactId>
         </dependency>
+        <dependency>
+            <groupId>cn.sutone.ai</groupId>
+            <artifactId>sutone-agent-bok-infrastructure</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
